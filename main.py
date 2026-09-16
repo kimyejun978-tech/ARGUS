@@ -13,10 +13,11 @@ from json_exporter import export_result_json
 from verifier.rule_based import verify_candidates
 
 
-# 작은 고정 50페이지 제한은 정답 URL을 놓칠 수 있다.
-# 기본은 시간 예산 중심으로 탐색하고, 1000페이지는 무한 크롤링 방지용 하드 세이프티다.
-MAX_CRAWL_PAGES = int(os.getenv("ARGUS_MAX_PAGES", "1000"))
-MAX_CRAWL_SECONDS = float(os.getenv("ARGUS_MAX_SECONDS", "180"))
+# 정밀 검사 우선 정책.
+# 대회 타임아웃(30분)보다 여유를 두고 25분을 기본 예산으로 사용하며,
+# 페이지 수는 무한 루프 방지용 큰 하드 세이프티만 둔다.
+MAX_CRAWL_PAGES = int(os.getenv("ARGUS_MAX_PAGES", "10000"))
+MAX_CRAWL_SECONDS = float(os.getenv("ARGUS_MAX_SECONDS", "1500"))
 
 
 def normalize_target(target):
@@ -50,6 +51,9 @@ def print_candidates(title, candidates):
         if candidate.get("opacity_source"):
             print("숨김 적용 위치 :", candidate["opacity_source"])
 
+        if candidate.get("observation_count", 1) > 1:
+            print("다중 관측 :", f"{candidate['observation_count']}회")
+
         if candidate.get("verification_reason"):
             print("검증 :", candidate["verification_reason"])
 
@@ -64,8 +68,12 @@ async def main():
 
     print("[ARGUS] 진입 URL :", target)
     print(
-        f"[ARGUS] 탐색 예산 : 최대 {MAX_CRAWL_SECONDS:.0f}초 / "
+        f"[ARGUS] 정밀 탐색 예산 : 최대 {MAX_CRAWL_SECONDS:.0f}초 / "
         f"하드 최대 {MAX_CRAWL_PAGES}페이지"
+    )
+    print(
+        "[ARGUS] 다중 검사 : 데스크톱 즉시·안정·스크롤 + "
+        "모바일 안정·스크롤"
     )
 
     started = datetime.now().astimezone()
@@ -126,12 +134,14 @@ async def main():
     print("==============================")
     print("분석 페이지 수   :", crawl_result["page_count"])
     print("분석 frame 수    :", crawl_result["frame_count"])
-    print("텍스트 요소      :", crawl_result["element_count"])
+    print("고유 텍스트 요소 :", crawl_result["element_count"])
+    print("다중 관측 요소   :", crawl_result.get("observation_count", 0))
+    print("검사 패스 합계   :", crawl_result.get("scan_pass_count", 0))
     print("TRANSPARENT 후보 :", len(transparent_candidates))
     print("OFFSCREEN 후보   :", len(offscreen_candidates))
     print("JAMO 후보        :", len(jamo_candidates))
     print("HOMOGLYPH 후보   :", len(homoglyph_candidates))
-    print("구조 후보 합계   :", raw_candidate_count)
+    print("구조 후보 관측합 :", raw_candidate_count)
     print("1차 검증 통과    :", len(verified_candidates))
     print("1차 검증 보류    :", len(rejected_candidates))
     print("최종 findings    :", len(result_json["findings"]))
