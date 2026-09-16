@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>ARGUS Offscreen Regression Test</title>
+    <style>
+        .spacer {
+            height: 1200px;
+        }
+
+        .far-left {
+            position: absolute;
+            left: -9999px;
+        }
+
+        .tiny-text {
+            font-size: 1px;
+        }
+
+        .display-none {
+            display: none;
+        }
+
+        .hidden-parent {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <h1>ARGUS OFFSCREEN 회귀 테스트</h1>
+    <p>NORMAL TOP TEXT</p>
+
+    <div class="spacer"></div>
+
+    <!-- viewport 아래에 있지만 정상 스크롤 콘텐츠이므로 잡히면 안 됨 -->
+    <p>NORMAL BELOW FOLD TEXT</p>
+
+    <p class="far-left">OFFSCREEN FAR LEFT TEST</p>
+    <p class="tiny-text">OFFSCREEN TINY TEST</p>
+    <p class="display-none">OFFSCREEN DISPLAY NONE TEST</p>
+
+    <div class="hidden-parent">
+        <span>OFFSCREEN PARENT DISPLAY NONE TEST</span>
+    </div>
+</body>
+</html>
