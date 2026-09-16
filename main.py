@@ -3,12 +3,15 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from crawler import scan_page
+from crawler import crawl_site
 from detectors.homoglyph import detect_homoglyph_candidates
 from detectors.jamo import detect_jamo_candidates
 from detectors.offscreen import detect_offscreen_candidates
 from detectors.transparent import detect_transparent_candidates
 from json_exporter import export_result_json
+
+
+MAX_CRAWL_PAGES = 50
 
 
 def normalize_target(target):
@@ -28,6 +31,7 @@ def print_candidates(title, candidates):
         print()
         print(f"[{title} 후보 {index}]")
         print("원문 :", candidate["evidence_text"])
+        print("페이지 :", candidate["url"])
         print("위치 :", candidate["location"])
         print("유형 :", candidate["technique"])
         print("근거 :", ", ".join(candidate["reason"]))
@@ -50,23 +54,40 @@ async def main():
     target = input("검사할 URL 또는 파일: ").strip()
     target = normalize_target(target)
 
-    print("[ARGUS] 검사 대상 :", target)
+    print("[ARGUS] 진입 URL :", target)
 
     started = datetime.now().astimezone()
     start_timer = time.perf_counter()
 
-    result = await scan_page(target)
+    crawl_result = await crawl_site(
+        target,
+        max_pages=MAX_CRAWL_PAGES,
+    )
 
-    transparent_candidates = detect_transparent_candidates(result)
-    offscreen_candidates = detect_offscreen_candidates(result)
-    jamo_candidates = detect_jamo_candidates(result)
-    homoglyph_candidates = detect_homoglyph_candidates(result)
+    transparent_candidates = []
+    offscreen_candidates = []
+    jamo_candidates = []
+    homoglyph_candidates = []
+
+    for page_result in crawl_result["pages"]:
+        transparent_candidates.extend(
+            detect_transparent_candidates(page_result)
+        )
+        offscreen_candidates.extend(
+            detect_offscreen_candidates(page_result)
+        )
+        jamo_candidates.extend(
+            detect_jamo_candidates(page_result)
+        )
+        homoglyph_candidates.extend(
+            detect_homoglyph_candidates(page_result)
+        )
 
     finished = datetime.now().astimezone()
     elapsed_sec = round(time.perf_counter() - start_timer, 3)
 
     result_path, result_json = export_result_json(
-        entry_url=target,
+        entry_url=crawl_result["entry_url"],
         started_at=started.isoformat(timespec="seconds"),
         finished_at=finished.isoformat(timespec="seconds"),
         elapsed_sec=elapsed_sec,
@@ -82,9 +103,9 @@ async def main():
     print("==============================")
     print("         분석 결과")
     print("==============================")
-    print("페이지 제목 :", result["title"])
-    print("분석 frame 수:", result.get("frame_count", 1))
-    print("텍스트 요소 :", len(result["elements"]))
+    print("분석 페이지 수   :", crawl_result["page_count"])
+    print("분석 frame 수    :", crawl_result["frame_count"])
+    print("텍스트 요소      :", crawl_result["element_count"])
     print("TRANSPARENT 후보 :", len(transparent_candidates))
     print("OFFSCREEN 후보   :", len(offscreen_candidates))
     print("JAMO 후보        :", len(jamo_candidates))
@@ -92,6 +113,14 @@ async def main():
     print("최종 findings    :", len(result_json["findings"]))
     print("result.json      :", result_path)
     print("탐지 시간        :", f"{elapsed_sec:.3f}초")
+
+    if crawl_result["limit_reached"]:
+        print(
+            f"주의              : 페이지 제한 {MAX_CRAWL_PAGES}개에 도달했습니다."
+        )
+
+    if crawl_result["errors"]:
+        print("접속 실패 페이지 :", len(crawl_result["errors"]))
 
     print_candidates("TRANSPARENT", transparent_candidates)
     print_candidates("OFFSCREEN", offscreen_candidates)
