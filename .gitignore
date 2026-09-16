@@ -16,3 +16,5 @@ venv/
 # ARGUS generated output
 output/*
 !output/.gitkeep
+result.json
+result_extra.json
