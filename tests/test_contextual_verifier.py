@@ -22,6 +22,7 @@ class ContextualVerifierTests(unittest.TestCase):
                         "opacity가 0인 요소 또는 부모 요소에 의해 숨겨짐"
                     ],
                     "opacity_source": "dialog#apps",
+                    "scan_pass": "desktop-initial",
                 }
             )
             pages.append(
@@ -47,8 +48,11 @@ class ContextualVerifierTests(unittest.TestCase):
         self.assertEqual(len(verified), 0)
         self.assertEqual(len(rejected), 4)
         self.assertTrue(all(item["is_violation"] is False for item in rejected))
+        self.assertTrue(
+            all(item["verification_status"] == "BENIGN_LIKELY" for item in rejected)
+        )
 
-    def test_one_off_hidden_ad_context_can_pass(self):
+    def test_one_off_hidden_known_context_can_pass(self):
         url = "https://example.com/notice/1"
         selector = "main > article > p.hidden"
         candidate = {
@@ -58,6 +62,7 @@ class ContextualVerifierTests(unittest.TestCase):
             "technique": "TRANSPARENT",
             "reason": ["텍스트 색상이 완전히 투명함"],
             "opacity_source": selector,
+            "scan_pass": "desktop-initial",
         }
         pages = [
             {
@@ -78,7 +83,71 @@ class ContextualVerifierTests(unittest.TestCase):
         self.assertEqual(len(verified), 1)
         self.assertEqual(len(rejected), 0)
         self.assertTrue(verified[0]["is_violation"])
-        self.assertGreaterEqual(verified[0]["verification_score"], 0.58)
+        self.assertEqual(verified[0]["verification_status"], "CONFIRMED")
+
+    def test_english_known_context_uses_multilingual_branch(self):
+        url = "https://example.com/news/7"
+        selector = "main > article > span.hidden"
+        candidate = {
+            "url": url,
+            "location": selector,
+            "evidence_text": "hidden promotion join now claim bonus",
+            "technique": "TRANSPARENT",
+            "reason": ["텍스트 색상이 완전히 투명함"],
+            "opacity_source": selector,
+            "scan_pass": "desktop-initial",
+        }
+        pages = [
+            {
+                "url": url,
+                "title": "News",
+                "elements": [
+                    {"selector": selector, "text": candidate["evidence_text"]},
+                ],
+            }
+        ]
+
+        verified, rejected = verify_candidates([[candidate]], pages=pages)
+
+        self.assertEqual(len(verified), 1)
+        self.assertEqual(len(rejected), 0)
+        self.assertEqual(verified[0]["verification_status"], "CONFIRMED")
+        self.assertIn(
+            verified[0]["semantic_backend"],
+            {"char-ngram-multilingual", "local-sentence-transformer"},
+        )
+
+    def test_unknown_text_can_survive_via_open_set(self):
+        urls = [f"https://example.com/page-{index}" for index in range(6)]
+        target_url = urls[0]
+        selector = "main > article > span.x"
+        candidate = {
+            "url": target_url,
+            "location": selector,
+            "evidence_text": "QZXV NRMK portal",
+            "technique": "HOMOGLYPH",
+            "reason": ["한 단어 안에 라틴 문자와 유사한 키릴/그리스 문자가 혼합됨"],
+            "scan_pass": "mobile-scrolled",
+        }
+        pages = [
+            {
+                "url": url,
+                "title": "Page",
+                "elements": (
+                    [{"selector": selector, "text": candidate["evidence_text"]}]
+                    if url == target_url
+                    else [{"selector": "main > p", "text": "ordinary content"}]
+                ),
+            }
+            for url in urls
+        ]
+
+        verified, rejected = verify_candidates([[candidate]], pages=pages)
+
+        self.assertEqual(len(verified), 1)
+        self.assertEqual(len(rejected), 0)
+        self.assertEqual(verified[0]["verification_status"], "SUSPICIOUS")
+        self.assertGreaterEqual(verified[0]["open_set_score"], 0.56)
 
     def test_local_sample_marker_still_passes_regression_fixture(self):
         candidate = {
@@ -87,6 +156,7 @@ class ContextualVerifierTests(unittest.TestCase):
             "evidence_text": "SAMPLE TEST",
             "technique": "JAMO",
             "reason": ["회귀 테스트"],
+            "scan_pass": "desktop-initial",
         }
 
         verified, rejected = verify_candidates([[candidate]], pages=[])
@@ -94,6 +164,7 @@ class ContextualVerifierTests(unittest.TestCase):
         self.assertEqual(len(verified), 1)
         self.assertEqual(len(rejected), 0)
         self.assertEqual(verified[0]["verification_score"], 1.0)
+        self.assertEqual(verified[0]["verification_status"], "CONFIRMED")
 
 
 if __name__ == "__main__":
