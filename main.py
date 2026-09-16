@@ -1,6 +1,23 @@
 import asyncio
+from pathlib import Path
 
 from crawler import scan_page
+from detectors.transparent import detect_transparent_candidates
+
+
+def normalize_target(target):
+    # 이미 정상적인 URL이면 그대로 사용
+    if target.startswith(("http://", "https://", "file://")):
+        return target
+
+    # 로컬 파일인지 확인
+    path = Path(target)
+
+    if path.exists():
+        return path.resolve().as_uri()
+
+    # URL인데 https://를 생략한 경우
+    return "https://" + target
 
 
 async def main():
@@ -9,63 +26,73 @@ async def main():
     print("            ARGUS")
     print("==============================")
 
-    url = input(
-        "검사할 URL을 입력하세요: "
+    target = input(
+        "검사할 URL 또는 파일: "
     ).strip()
 
-    result = await scan_page(url)
+    target = normalize_target(target)
 
+    print("[ARGUS] 검사 대상 :", target)
+
+    result = await scan_page(target)
+
+    candidates = detect_transparent_candidates(
+        result
+    )
 
     print()
-    print("[분석 완료]")
+    print("==============================")
+    print("         분석 결과")
+    print("==============================")
 
-    print("페이지 제목 :", result["title"])
-
-    print("현재 URL    :", result["url"])
+    print(
+        "페이지 제목 :",
+        result["title"]
+    )
 
     print(
         "텍스트 요소 :",
-        len(result["elements"]),
-        "개"
+        len(result["elements"])
     )
 
+    print(
+        "TRANSPARENT 후보 :",
+        len(candidates)
+    )
 
-    print()
-    print("===== 일부 요소 =====")
-
-
-    for element in result["elements"][:20]:
+    for index, candidate in enumerate(
+        candidates,
+        start=1
+    ):
 
         print()
+        print(f"[후보 {index}]")
+
         print(
-            "TEXT     :",
-            element["text"][:80]
+            "원문 :",
+            candidate["evidence_text"]
         )
 
         print(
-            "SELECTOR :",
-            element["selector"]
+            "위치 :",
+            candidate["location"]
         )
 
         print(
-            "DISPLAY  :",
-            element["style"]["display"]
+            "유형 :",
+            candidate["technique"]
         )
 
         print(
-            "OPACITY  :",
-            element["style"]["opacity"]
+            "근거 :",
+            ", ".join(candidate["reason"])
         )
 
-        print(
-            "POSITION :",
-            element["rect"]
-        )
-
-        print(
-            "VIEWPORT :",
-            element["inViewport"]
-        )
+        if candidate["opacity_source"]:
+            print(
+                "숨김 적용 위치 :",
+                candidate["opacity_source"]
+            )
 
 
 if __name__ == "__main__":

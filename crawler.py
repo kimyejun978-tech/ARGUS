@@ -2,12 +2,19 @@ from playwright.async_api import async_playwright
 
 
 async def scan_page(url):
+
     async with async_playwright() as p:
+
         browser = await p.chromium.launch(
             headless=True
         )
 
-        page = await browser.new_page()
+        page = await browser.new_page(
+            viewport={
+                "width": 1280,
+                "height": 720
+            }
+        )
 
         print("[ARGUS] 페이지 접속 중...")
 
@@ -21,14 +28,14 @@ async def scan_page(url):
 
         print("[ARGUS] DOM 분석 중...")
 
+
         elements = await page.evaluate(
             """
             () => {
 
-                // 요소의 CSS Selector를 만드는 함수
                 function makeSelector(element) {
 
-                    if (!element || element.nodeType !== 1) {
+                    if (!element) {
                         return "";
                     }
 
@@ -36,112 +43,264 @@ async def scan_page(url):
 
                     let current = element;
 
+
                     while (
                         current &&
                         current.nodeType === 1
                     ) {
 
-                        let part = current.tagName.toLowerCase();
+                        let part =
+                            current.tagName.toLowerCase();
 
-                        // id가 있으면 그 위치에서 종료
+
                         if (current.id) {
 
-                            part += "#" + CSS.escape(current.id);
+                            part +=
+                                "#" +
+                                CSS.escape(current.id);
 
                             parts.unshift(part);
 
                             break;
                         }
 
-                        const parent = current.parentElement;
+
+                        const parent =
+                            current.parentElement;
+
 
                         if (parent) {
 
-                            const sameTagElements =
-                                Array.from(parent.children)
-                                .filter(
+                            const sameTags =
+                                Array.from(
+                                    parent.children
+                                ).filter(
                                     child =>
-                                        child.tagName === current.tagName
+                                        child.tagName ===
+                                        current.tagName
                                 );
 
-                            // 같은 태그가 여러 개 있으면 순서를 붙임
-                            if (sameTagElements.length > 1) {
+
+                            if (sameTags.length > 1) {
 
                                 const index =
-                                    sameTagElements.indexOf(current) + 1;
+                                    sameTags.indexOf(
+                                        current
+                                    ) + 1;
 
-                                part += `:nth-of-type(${index})`;
+                                part +=
+                                    `:nth-of-type(${index})`;
                             }
                         }
 
+
                         parts.unshift(part);
 
-                        current = parent;
+                        current =
+                            current.parentElement;
                     }
+
 
                     return parts.join(" > ");
                 }
 
 
+
+                function getColorAlpha(color) {
+
+                    if (!color) {
+                        return 1;
+                    }
+
+
+                    if (color === "transparent") {
+                        return 0;
+                    }
+
+
+                    const match =
+                        color.match(
+                            /rgba\\([^,]+,[^,]+,[^,]+,\\s*([0-9.]+)\\)/
+                        );
+
+
+                    if (match) {
+                        return Number(match[1]);
+                    }
+
+
+                    return 1;
+                }
+
+
+
+                function getEffectiveInfo(element) {
+
+                    let current = element;
+
+                    let effectiveOpacity = 1;
+
+                    let opacitySource = null;
+
+
+                    while (current) {
+
+                        const style =
+                            window.getComputedStyle(
+                                current
+                            );
+
+
+                        const opacity =
+                            Number(style.opacity);
+
+
+                        if (!Number.isNaN(opacity)) {
+
+                            effectiveOpacity *=
+                                opacity;
+
+
+                            if (
+                                opacity === 0 &&
+                                opacitySource === null
+                            ) {
+
+                                opacitySource =
+                                    makeSelector(current);
+                            }
+                        }
+
+
+                        current =
+                            current.parentElement;
+                    }
+
+
+                    return {
+
+                        effectiveOpacity:
+                            effectiveOpacity,
+
+                        opacitySource:
+                            opacitySource
+                    };
+                }
+
+
+
+                function findBackgroundColor(
+                    element
+                ) {
+
+                    let current = element;
+
+
+                    while (current) {
+
+                        const style =
+                            window.getComputedStyle(
+                                current
+                            );
+
+                        const background =
+                            style.backgroundColor;
+
+
+                        if (
+                            getColorAlpha(
+                                background
+                            ) > 0
+                        ) {
+
+                            return background;
+                        }
+
+
+                        current =
+                            current.parentElement;
+                    }
+
+
+                    return null;
+                }
+
+
+
                 const result = [];
 
-                const allElements =
-                    document.querySelectorAll("body *");
+                const elements =
+                    document.querySelectorAll(
+                        "body *"
+                    );
 
 
-                for (const element of allElements) {
-
-                    /*
-                     * 자식 요소의 텍스트까지 몽땅 가져오면
-                     * 같은 문자열이 계속 중복되므로
-                     * 현재 요소가 직접 가지고 있는 텍스트만 가져온다.
-                     */
+                for (const element of elements) {
 
                     const directText =
-                        Array.from(element.childNodes)
+                        Array.from(
+                            element.childNodes
+                        )
                         .filter(
                             node =>
-                                node.nodeType === Node.TEXT_NODE
+                                node.nodeType ===
+                                Node.TEXT_NODE
                         )
                         .map(
-                            node => node.textContent
+                            node =>
+                                node.textContent
                         )
                         .join(" ")
                         .trim();
 
 
-                    // 텍스트가 없으면 일단 제외
                     if (!directText) {
                         continue;
                     }
 
 
-                    // 브라우저가 실제로 계산한 CSS
                     const style =
-                        window.getComputedStyle(element);
+                        window.getComputedStyle(
+                            element
+                        );
 
 
-                    // 브라우저 화면에서의 위치
                     const rect =
                         element.getBoundingClientRect();
 
 
-                    const inViewport =
-                        rect.width > 0 &&
-                        rect.height > 0 &&
-                        rect.bottom > 0 &&
-                        rect.right > 0 &&
-                        rect.top < window.innerHeight &&
-                        rect.left < window.innerWidth;
+                    const effective =
+                        getEffectiveInfo(
+                            element
+                        );
+
+
+                    const backgroundColor =
+                        findBackgroundColor(
+                            element
+                        );
+
+
+                    const textColor =
+                        style.color;
+
+
+                    const sameColor =
+                        backgroundColor !== null &&
+                        textColor === backgroundColor;
 
 
                     result.push({
 
-                        tag: element.tagName.toLowerCase(),
+                        tag:
+                            element.tagName
+                            .toLowerCase(),
 
-                        selector: makeSelector(element),
+                        selector:
+                            makeSelector(element),
 
-                        text: directText,
+                        text:
+                            directText,
 
                         style: {
 
@@ -152,13 +311,15 @@ async def scan_page(url):
                                 style.visibility,
 
                             opacity:
-                                style.opacity,
+                                Number(
+                                    style.opacity
+                                ),
 
                             color:
-                                style.color,
+                                textColor,
 
                             backgroundColor:
-                                style.backgroundColor,
+                                backgroundColor,
 
                             fontSize:
                                 style.fontSize,
@@ -167,25 +328,37 @@ async def scan_page(url):
                                 style.position
                         },
 
+                        effectiveOpacity:
+                            effective
+                            .effectiveOpacity,
+
+                        opacitySource:
+                            effective
+                            .opacitySource,
+
+                        textColorAlpha:
+                            getColorAlpha(
+                                textColor
+                            ),
+
+                        sameTextBackground:
+                            sameColor,
+
                         rect: {
 
-                            x: rect.x,
-                            y: rect.y,
+                            x:
+                                rect.x,
+
+                            y:
+                                rect.y,
 
                             width:
                                 rect.width,
 
                             height:
                                 rect.height
-                        },
+                        }
 
-                        inViewport: inViewport,
-
-                        hiddenAttribute:
-                            element.hidden,
-
-                        ariaHidden:
-                            element.getAttribute("aria-hidden")
                     });
                 }
 
@@ -195,11 +368,19 @@ async def scan_page(url):
             """
         )
 
+
         result = {
-            "title": title,
-            "url": page.url,
-            "elements": elements
+
+            "title":
+                title,
+
+            "url":
+                page.url,
+
+            "elements":
+                elements
         }
+
 
         await browser.close()
 

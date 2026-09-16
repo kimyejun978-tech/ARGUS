@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>ARGUS Transparent Test</title>
+
+    <style>
+        .opacity-zero {
+            opacity: 0;
+        }
+
+        .transparent-color {
+            color: transparent;
+        }
+
+        .same-color {
+            color: white;
+            background-color: white;
+        }
+
+        .parent-hidden {
+            opacity: 0;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>ARGUS 테스트 페이지</h1>
+
+    <p>이 문장은 정상적으로 보여야 합니다.</p>
+
+    <p class="opacity-zero">
+        TRANSPARENT TEST 1
+    </p>
+
+    <p class="transparent-color">
+        TRANSPARENT TEST 2
+    </p>
+
+    <p class="same-color">
+        TRANSPARENT TEST 3
+    </p>
+
+    <div class="parent-hidden">
+        <span>
+            TRANSPARENT TEST 4
+        </span>
+    </div>
+
+</body>
+</html>
