@@ -19,6 +19,7 @@ from verifier.rule_based import verify_candidates
 MAX_CRAWL_PAGES = int(os.getenv("ARGUS_MAX_PAGES", "10000"))
 MAX_CRAWL_SECONDS = float(os.getenv("ARGUS_MAX_SECONDS", "1620"))
 CRAWL_WORKERS = max(1, int(os.getenv("ARGUS_WORKERS", "4")))
+DISCOVERY_WORKERS = max(0, int(os.getenv("ARGUS_DISCOVERY_WORKERS", "8")))
 
 
 def normalize_target(target):
@@ -73,8 +74,12 @@ async def main():
         f"하드 최대 {MAX_CRAWL_PAGES}페이지"
     )
     print(
-        f"[ARGUS] 병렬 검사 : {CRAWL_WORKERS} worker / "
-        "각 페이지 5-pass 정밀 검사"
+        f"[ARGUS] 브라우저 정밀 검사 : {CRAWL_WORKERS} worker / "
+        "각 페이지 5-pass"
+    )
+    print(
+        f"[ARGUS] HTTP 고속 discovery : {DISCOVERY_WORKERS} worker / "
+        "HTML + robots + sitemap"
     )
     print(
         "[ARGUS] 다중 검사 : 데스크톱 즉시·안정·스크롤 + "
@@ -89,6 +94,7 @@ async def main():
         max_pages=MAX_CRAWL_PAGES,
         max_seconds=MAX_CRAWL_SECONDS,
         worker_count=CRAWL_WORKERS,
+        discovery_worker_count=DISCOVERY_WORKERS,
     )
 
     transparent_candidates = []
@@ -138,7 +144,16 @@ async def main():
     print("==============================")
     print("         분석 결과")
     print("==============================")
-    print("병렬 worker 수   :", crawl_result.get("worker_count", CRAWL_WORKERS))
+    print("브라우저 worker   :", crawl_result.get("worker_count", CRAWL_WORKERS))
+    print(
+        "discovery worker  :",
+        crawl_result.get("discovery_worker_count", DISCOVERY_WORKERS),
+    )
+    print("발견 고유 URL 수  :", crawl_result.get("known_page_count", 0))
+    print("HTTP fetch 수     :", crawl_result.get("discovery_fetch_count", 0))
+    print("HTTP HTML 분석 수 :", crawl_result.get("discovery_html_count", 0))
+    print("robots 분석 수    :", crawl_result.get("discovery_robots_count", 0))
+    print("sitemap 분석 수   :", crawl_result.get("discovery_sitemap_count", 0))
     print("분석 페이지 수   :", crawl_result["page_count"])
     print("분석 frame 수    :", crawl_result["frame_count"])
     print("고유 텍스트 요소 :", crawl_result["element_count"])
@@ -159,7 +174,8 @@ async def main():
         print(
             f"주의              : 비상 watchdog "
             f"{MAX_CRAWL_SECONDS:.0f}초에 도달했습니다. "
-            f"미완료 URL 약 {crawl_result.get('pending_count', 0)}개"
+            f"브라우저 대기 URL 약 {crawl_result.get('pending_count', 0)}개 / "
+            f"discovery 대기 약 {crawl_result.get('discovery_pending_count', 0)}개"
         )
     elif crawl_result.get("page_limit_reached"):
         print(
@@ -169,6 +185,12 @@ async def main():
 
     if crawl_result["errors"]:
         print("접속/검사 실패   :", len(crawl_result["errors"]))
+
+    if crawl_result.get("discovery_error_count", 0):
+        print(
+            "HTTP discovery 실패:",
+            crawl_result.get("discovery_error_count", 0),
+        )
 
     if verified_candidates:
         print()
