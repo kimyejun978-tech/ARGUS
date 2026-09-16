@@ -66,6 +66,7 @@ def detect_offscreen_candidates(page_result):
             "technique": "OFFSCREEN",
             "reason": reasons,
             "rect": rect,
+            "scan_pass": element.get("scan_pass"),
         }
 
         if display_source:
