@@ -83,6 +83,7 @@ async def main():
     print("         분석 결과")
     print("==============================")
     print("페이지 제목 :", result["title"])
+    print("분석 frame 수:", result.get("frame_count", 1))
     print("텍스트 요소 :", len(result["elements"]))
     print("TRANSPARENT 후보 :", len(transparent_candidates))
     print("OFFSCREEN 후보   :", len(offscreen_candidates))
