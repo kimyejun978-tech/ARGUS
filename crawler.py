@@ -67,6 +67,7 @@ DOM_SCAN_SCRIPT = r"""
         let current = element;
         let effectiveOpacity = 1;
         let opacitySource = null;
+        let displayNoneSource = null;
 
         while (current) {
             const style = window.getComputedStyle(current);
@@ -80,12 +81,17 @@ DOM_SCAN_SCRIPT = r"""
                 }
             }
 
+            if (style.display === "none" && displayNoneSource === null) {
+                displayNoneSource = makeSelector(current);
+            }
+
             current = current.parentElement;
         }
 
         return {
             effectiveOpacity,
-            opacitySource
+            opacitySource,
+            displayNoneSource
         };
     }
 
@@ -144,6 +150,7 @@ DOM_SCAN_SCRIPT = r"""
             },
             effectiveOpacity: effective.effectiveOpacity,
             opacitySource: effective.opacitySource,
+            displayNoneSource: effective.displayNoneSource,
             textColorAlpha: getColorAlpha(textColor),
             sameTextBackground:
                 backgroundColor !== null && textColor === backgroundColor,
@@ -264,6 +271,9 @@ async def _scan_frame(frame, prefix=""):
 
         if element.get("opacitySource"):
             element["opacitySource"] = prefix + element["opacitySource"]
+
+        if element.get("displayNoneSource"):
+            element["displayNoneSource"] = prefix + element["displayNoneSource"]
 
     frame_count = 1
 
@@ -423,7 +433,6 @@ async def crawl_site(entry_url, max_pages=50):
             final_url = _canonicalize_url(page.url)
             final_parsed = urlsplit(final_url)
 
-            # 최초 진입 시 www 유무 등의 redirect가 있었다면 최종 host도 허용한다.
             if len(pages) == 0 and final_parsed.hostname:
                 allowed_hosts.add(final_parsed.hostname.lower())
 
