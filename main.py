@@ -13,9 +13,6 @@ from json_exporter import export_result_json
 from verifier.contextual import verify_candidates
 
 
-# 정밀 검사 우선 정책.
-# 정상 종료 조건은 "발견한 URL 큐가 모두 비는 것"이다.
-# 아래 시간은 목표 시간이 아니라 대회 30분 상한 전에 결과를 보존하기 위한 비상 watchdog이다.
 MAX_CRAWL_PAGES = int(os.getenv("ARGUS_MAX_PAGES", "10000"))
 MAX_CRAWL_SECONDS = float(os.getenv("ARGUS_MAX_SECONDS", "1620"))
 CRAWL_WORKERS = max(1, int(os.getenv("ARGUS_WORKERS", "4")))
@@ -56,14 +53,32 @@ def print_candidates(title, candidates):
         if candidate.get("observation_count", 1) > 1:
             print("다중 관측 :", f"{candidate['observation_count']}회")
 
+        if candidate.get("scan_passes"):
+            print("관측 상태 :", ", ".join(candidate["scan_passes"]))
+
+        if candidate.get("verification_status"):
+            print("판정 상태 :", candidate["verification_status"])
+
         if candidate.get("semantic_score") is not None:
-            print("의미 점수 :", f"{candidate['semantic_score']:.3f}")
+            print("known 의미 점수 :", f"{candidate['semantic_score']:.3f}")
+
+        if candidate.get("multilingual_score") is not None:
+            print("다국어 의미 점수 :", f"{candidate['multilingual_score']:.3f}")
+
+        if candidate.get("semantic_backend"):
+            print("다국어 backend :", candidate["semantic_backend"])
 
         if candidate.get("structure_score") is not None:
             print("구조 점수 :", f"{candidate['structure_score']:.3f}")
 
+        if candidate.get("known_score") is not None:
+            print("known 결합 점수 :", f"{candidate['known_score']:.3f}")
+
+        if candidate.get("open_set_score") is not None:
+            print("open-set 점수 :", f"{candidate['open_set_score']:.3f}")
+
         if candidate.get("verification_score") is not None:
-            print("결합 점수 :", f"{candidate['verification_score']:.3f}")
+            print("최종 결합 점수 :", f"{candidate['verification_score']:.3f}")
 
         if candidate.get("template_repeat_count", 1) > 1:
             print(
@@ -101,8 +116,8 @@ async def main():
         "모바일 안정·스크롤"
     )
     print(
-        "[ARGUS] 검증기 : 문자 n-gram 의미 모델 + 구조 강도 + "
-        "사이트 템플릿 반복도 결합"
+        "[ARGUS] 검증기 v3 : known 의미 모델 + 다국어 의미 분기 + "
+        "open-set 구조 이상 탐지"
     )
 
     started = datetime.now().astimezone()
@@ -147,6 +162,17 @@ async def main():
         pages=crawl_result["pages"],
     )
 
+    confirmed_candidates = [
+        item
+        for item in verified_candidates
+        if item.get("verification_status") == "CONFIRMED"
+    ]
+    suspicious_candidates = [
+        item
+        for item in verified_candidates
+        if item.get("verification_status") == "SUSPICIOUS"
+    ]
+
     finished = datetime.now().astimezone()
     elapsed_sec = round(time.perf_counter() - start_timer, 3)
 
@@ -185,8 +211,9 @@ async def main():
     print("JAMO 후보        :", len(jamo_candidates))
     print("HOMOGLYPH 후보   :", len(homoglyph_candidates))
     print("구조 후보 관측합 :", raw_candidate_count)
-    print("결합 검증 통과   :", len(verified_candidates))
-    print("결합 검증 보류   :", len(rejected_candidates))
+    print("CONFIRMED        :", len(confirmed_candidates))
+    print("SUSPICIOUS       :", len(suspicious_candidates))
+    print("BENIGN_LIKELY    :", len(rejected_candidates))
     print("최종 findings    :", len(result_json["findings"]))
     print("result.json      :", result_path)
     print("탐지 시간        :", f"{elapsed_sec:.3f}초")
@@ -216,16 +243,16 @@ async def main():
     if verified_candidates:
         print()
         print("==============================")
-        print("       결합 검증 통과 후보")
+        print("     최종 유지 후보")
         print("==============================")
-        print_candidates("검증 통과 후보", verified_candidates)
+        print_candidates("유지 후보", verified_candidates)
 
     if rejected_candidates:
         print()
         print(
             f"[ARGUS] 구조 탐지 후보 {len(rejected_candidates)}건은 "
-            "문맥·구조·사이트 반복도 결합 검증에서 보류되어 "
-            "result.json에서 제외했습니다."
+            "known 의미·다국어·open-set 결합 검증에서 정상 UI 가능성이 "
+            "더 높아 result.json에서 제외했습니다."
         )
 
 
