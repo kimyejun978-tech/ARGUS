@@ -3,8 +3,8 @@ from urllib.parse import urlsplit
 
 
 # 구조적 은닉/위장과 '불법광고 내용'을 분리하기 위한 1차 의미 신호.
-# 규칙 기반 단계이므로 보수적으로 운용하고, 이후 문맥 분류기로 확장한다.
-RISK_KEYWORDS = {
+# 단독으로도 비교적 강한 내용 신호와, 문맥이 없으면 정상 UI에서도 흔한 신호를 분리한다.
+CORE_RISK_KEYWORDS = {
     "카지노",
     "토토",
     "슬롯",
@@ -20,14 +20,19 @@ RISK_KEYWORDS = {
     "놀이터",
     "배당",
     "가입코드",
-    "텔레그램",
-    "telegram",
     "casino",
     "betting",
     "slot",
     "adult",
     "성인",
     "19금",
+}
+
+# 메신저/연락 채널 이름은 정상 사이트에서도 흔하다.
+# 이것만 있다는 이유로 불법광고로 확정하면 안 된다.
+CONTEXT_ONLY_KEYWORDS = {
+    "텔레그램",
+    "telegram",
 }
 
 
@@ -39,9 +44,18 @@ def _candidate_text(candidate):
     ).lower()
 
 
-def _has_risk_signal(candidate):
+def _risk_signal_level(candidate):
+    """strong / context / none 중 하나를 반환한다."""
+
     text = _candidate_text(candidate)
-    return any(keyword in text for keyword in RISK_KEYWORDS)
+
+    if any(keyword in text for keyword in CORE_RISK_KEYWORDS):
+        return "strong"
+
+    if any(keyword in text for keyword in CONTEXT_ONLY_KEYWORDS):
+        return "context"
+
+    return "none"
 
 
 def _is_local_test_candidate(candidate):
@@ -131,7 +145,8 @@ def verify_candidates(candidate_groups):
 
     핵심 원칙:
     - CSS/Unicode 기법이 발견됐다는 사실만으로 불법광고라고 확정하지 않는다.
-    - 정규화된 텍스트에서 불법광고 내용 신호가 함께 확인될 때만 통과한다.
+    - 강한 불법광고 내용 신호가 함께 확인될 때만 자동 통과한다.
+    - 메신저/연락 채널 이름처럼 정상 UI에서도 흔한 단어는 단독으로 통과시키지 않는다.
     - localhost/file 기반 모의 테스트의 SAMPLE/TEST 항목은 회귀 테스트를 위해 통과한다.
     - 다중 검사에서 같은 요소가 반복 관측된 것은 하나로 합친 뒤 검증한다.
     """
@@ -166,17 +181,36 @@ def verify_candidates(candidate_groups):
             candidate.get("evidence_text"),
         )
         repeat_count = len(repeated_pages[key])
+        signal_level = _risk_signal_level(candidate)
 
         if _is_local_test_candidate(candidate):
             item["verification_reason"] = "로컬 회귀 테스트 표식이 확인됨"
+            item["is_violation"] = True
             verified.append(item)
             continue
 
-        if _has_risk_signal(candidate):
+        if signal_level == "strong":
             item["verification_reason"] = (
-                "은닉/변조 기법과 불법광고 내용 신호가 함께 확인됨"
+                "은닉/변조 기법과 강한 불법광고 내용 신호가 함께 확인됨"
             )
+            item["is_violation"] = True
             verified.append(item)
+            continue
+
+        if signal_level == "context":
+            if repeat_count >= 3:
+                reason = (
+                    "연락/메신저 명칭만 확인됐고, 동일 요소가 "
+                    f"{repeat_count}개 페이지에서 반복되어 공통 UI/템플릿 가능성이 큼"
+                )
+            else:
+                reason = (
+                    "연락/메신저 명칭은 확인됐지만 단독으로는 불법광고 내용 신호가 충분하지 않음"
+                )
+
+            item["verification_reason"] = reason
+            item["is_violation"] = False
+            rejected.append(item)
             continue
 
         if _is_display_none_only(candidate):
