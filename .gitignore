@@ -1,0 +1,18 @@
+# Environment variables
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environment
+.venv/
+venv/
+
+# IDE
+.vscode/
+
+# ARGUS generated output
+output/*
+!output/.gitkeep
