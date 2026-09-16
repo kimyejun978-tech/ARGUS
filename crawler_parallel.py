@@ -2,12 +2,12 @@ import asyncio
 import itertools
 import time
 from collections import Counter
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from playwright.async_api import async_playwright
 
 from crawler import (
-    _canonicalize_url,
+    _canonicalize_url as _base_canonicalize_url,
     _is_same_site,
     _is_supported_page_url,
     _scan_loaded_page_multi,
@@ -19,6 +19,56 @@ from fast_discovery import (
     extract_sitemap_entries,
     standard_discovery_resources,
 )
+
+
+# 브라우저/HTTP에서 일시적으로 붙는 대표적인 비콘·challenge 파라미터.
+# 대회 규칙상 실제 페이지를 구분하는 일반 query 값은 유지해야 하므로
+# 명확히 비콘 성격인 prefix만 제거한다.
+TRANSIENT_QUERY_PREFIXES = (
+    "__cf_chl_",
+)
+
+# URL 발견 경로별 우선순위. 숫자가 작을수록 먼저 정밀검사한다.
+# sitemap-only URL도 버리지는 않되, 실제 페이지에서 도달 가능한 링크를 먼저 본다.
+SOURCE_PRIORITY = {
+    "entry": 0,
+    "browser": 0,
+    "http": 1,
+    "sitemap": 3,
+}
+
+
+def _canonicalize_pipeline_url(url: str) -> str:
+    """기존 canonicalize + 명백한 일시성 challenge query 제거."""
+
+    base = _base_canonicalize_url(url)
+    parsed = urlsplit(base)
+
+    if parsed.scheme not in {"http", "https"}:
+        return base
+
+    query_items = []
+
+    for key, value in parse_qsl(parsed.query, keep_blank_values=True):
+        lower_key = key.lower()
+
+        if any(
+            lower_key.startswith(prefix)
+            for prefix in TRANSIENT_QUERY_PREFIXES
+        ):
+            continue
+
+        query_items.append((key, value))
+
+    return urlunsplit(
+        (
+            parsed.scheme,
+            parsed.netloc,
+            parsed.path,
+            urlencode(sorted(query_items), doseq=True),
+            "",
+        )
+    )
 
 
 async def crawl_site(
@@ -35,12 +85,14 @@ async def crawl_site(
     정확도 우선 원칙:
     - HTTP discovery는 브라우저 검사를 대체하지 않는다.
     - 발견한 모든 고유 HTML URL은 시간이 허용되는 한 Playwright 5-pass 검사를 받는다.
+    - 실제 DOM/HTML에서 도달한 URL을 sitemap-only URL보다 먼저 검사한다.
     - URL 패턴은 우선순위에만 사용하고 페이지를 생략하지 않는다.
-    - robots/sitemap은 URL을 더 빨리 찾기 위한 보조 경로다.
+    - sitemap-only URL은 브라우저 큐에는 넣되 HTTP 재귀 fetch를 즉시 대량 발생시키지 않는다.
+    - max_pages는 '시도 URL 수'가 아니라 실제 완료된 정밀검사 페이지 수 기준이다.
     - max_seconds는 목표 시간이 아니라 30분 상한 전에 결과를 보존하기 위한 watchdog이다.
     """
 
-    canonical_entry = _canonicalize_url(entry_url)
+    canonical_entry = _canonicalize_pipeline_url(entry_url)
     entry_parsed = urlsplit(canonical_entry)
     entry_scheme = entry_parsed.scheme
 
@@ -51,7 +103,6 @@ async def crawl_site(
     worker_count = max(1, int(worker_count))
     discovery_worker_count = max(0, int(discovery_worker_count))
 
-    # file:// 테스트에서는 APIRequestContext discovery를 사용하지 않는다.
     if entry_scheme == "file":
         discovery_worker_count = 0
 
@@ -59,7 +110,7 @@ async def crawl_site(
     discovery_queue = asyncio.Queue()
     sequence = itertools.count()
 
-    browser_queued = set()
+    browser_priority = {}
     browser_visited = set()
     discovery_queued = set()
     discovery_visited = set()
@@ -80,7 +131,7 @@ async def crawl_site(
     active_browser_workers = 0
     active_discovery_workers = 0
 
-    claimed_count = 0
+    attempted_count = 0
     time_limit_reached = False
     page_limit_reached = False
     interrupted_count = 0
@@ -105,12 +156,10 @@ async def crawl_site(
                 allowed_hosts.add(host)
 
     async def schedule_discovery(kind, url):
-        """HTTP discovery 전용 자원을 중복 없이 큐에 넣는다."""
-
         if discovery_worker_count <= 0:
             return False
 
-        candidate = _canonicalize_url(url)
+        candidate = _canonicalize_pipeline_url(url)
 
         if kind == "page":
             if not _is_supported_page_url(candidate):
@@ -134,13 +183,15 @@ async def crawl_site(
             discovery_queue.put_nowait(key)
             return True
 
-    async def schedule_page(url):
+    async def schedule_page(url, source="http"):
         """
-        한 URL을 브라우저 정밀검사 큐와 HTTP discovery 큐에 동시에 넣는다.
-        HTTP discovery는 링크를 앞서 찾기 위한 경량 경로일 뿐 브라우저 검사는 생략하지 않는다.
+        정밀검사 대상 URL을 큐에 넣는다.
+
+        이미 sitemap 저우선순위로 들어간 URL을 실제 DOM에서 다시 발견하면
+        더 높은 우선순위 항목을 추가한다. 오래된 큐 항목은 worker가 무시한다.
         """
 
-        candidate = _canonicalize_url(url)
+        candidate = _canonicalize_pipeline_url(url)
 
         if not _is_supported_page_url(candidate):
             return False
@@ -148,32 +199,47 @@ async def crawl_site(
         if not _is_same_site(candidate, allowed_hosts, entry_scheme):
             return False
 
+        source_rank = SOURCE_PRIORITY.get(source, SOURCE_PRIORITY["http"])
         browser_added = False
 
         async with state_lock:
             known_page_urls.add(candidate)
 
-            if (
-                not stop_event.is_set()
-                and candidate not in browser_visited
-                and candidate not in browser_queued
-            ):
+            if stop_event.is_set() or candidate in browser_visited:
+                pass
+            else:
                 pattern = _url_pattern(candidate)
-                priority = (
-                    0
-                    if scheduled_patterns[pattern] < pattern_priority_samples
-                    else 1
-                )
-                scheduled_patterns[pattern] += 1
+                existing = browser_priority.get(candidate)
 
-                browser_queued.add(candidate)
-                browser_queue.put_nowait(
-                    (priority, next(sequence), candidate)
-                )
-                browser_added = True
+                if existing is None:
+                    pattern_rank = (
+                        0
+                        if scheduled_patterns[pattern] < pattern_priority_samples
+                        else 1
+                    )
+                    scheduled_patterns[pattern] += 1
+                else:
+                    pattern_rank = existing[1]
 
-        # lock 밖에서 별도 discovery 큐를 예약한다.
-        await schedule_discovery("page", candidate)
+                new_priority = (source_rank, pattern_rank)
+
+                if existing is None or new_priority < existing:
+                    browser_priority[candidate] = new_priority
+                    browser_queue.put_nowait(
+                        (
+                            source_rank,
+                            pattern_rank,
+                            next(sequence),
+                            candidate,
+                        )
+                    )
+                    browser_added = True
+
+        # sitemap이 수천 URL을 제공해도 HTTP discovery worker까지 동시에
+        # 수천 fetch로 포화시키지 않는다. 브라우저 검사는 그대로 유지한다.
+        if source != "sitemap":
+            await schedule_discovery("page", candidate)
+
         return browser_added
 
     async def schedule_standard_resources(url):
@@ -189,7 +255,7 @@ async def crawl_site(
                 and active_discovery_workers == 0
             )
 
-    await schedule_page(canonical_entry)
+    await schedule_page(canonical_entry, source="entry")
     await schedule_standard_resources(canonical_entry)
 
     async with async_playwright() as p:
@@ -198,7 +264,6 @@ async def crawl_site(
             viewport={"width": 1280, "height": 720},
             ignore_https_errors=True,
         )
-
         request_context = context.request
 
         browser_pages = [
@@ -275,10 +340,8 @@ async def crawl_site(
                         continue
 
                     discovery_fetch_count += 1
-                    final_url = _canonicalize_url(response.url)
+                    final_url = _canonicalize_pipeline_url(response.url)
 
-                    # 진입 URL 리다이렉트(예: example.go.kr -> www.example.go.kr)를
-                    # 동일 평가 사이트 범위로 인정한다.
                     if requested_url == canonical_entry:
                         await add_allowed_host_from_entry(final_url)
                         await schedule_standard_resources(final_url)
@@ -290,8 +353,7 @@ async def crawl_site(
                     ):
                         continue
 
-                    status = response.status
-                    if status >= 400:
+                    if response.status >= 400:
                         continue
 
                     try:
@@ -306,11 +368,7 @@ async def crawl_site(
                             text,
                             final_url,
                         ):
-                            await schedule_discovery(
-                                "sitemap",
-                                sitemap_url,
-                            )
-
+                            await schedule_discovery("sitemap", sitemap_url)
                         continue
 
                     if kind == "sitemap":
@@ -321,14 +379,10 @@ async def crawl_site(
                         )
 
                         for sitemap_url in sitemap_urls:
-                            await schedule_discovery(
-                                "sitemap",
-                                sitemap_url,
-                            )
+                            await schedule_discovery("sitemap", sitemap_url)
 
                         for page_url in page_urls:
-                            await schedule_page(page_url)
-
+                            await schedule_page(page_url, source="sitemap")
                         continue
 
                     content_type = (
@@ -347,7 +401,7 @@ async def crawl_site(
                     discovery_html_count += 1
 
                     for link in extract_html_links(text, final_url):
-                        await schedule_page(link)
+                        await schedule_page(link, source="http")
 
                 finally:
                     if response is not None:
@@ -364,7 +418,7 @@ async def crawl_site(
 
         async def browser_worker(worker_id, page):
             nonlocal active_browser_workers
-            nonlocal claimed_count
+            nonlocal attempted_count
             nonlocal time_limit_reached
             nonlocal page_limit_reached
             nonlocal interrupted_count
@@ -380,9 +434,11 @@ async def crawl_site(
                     return
 
                 try:
-                    _, _, requested_url = await asyncio.wait_for(
-                        browser_queue.get(),
-                        timeout=0.15,
+                    source_rank, pattern_rank, _, requested_url = (
+                        await asyncio.wait_for(
+                            browser_queue.get(),
+                            timeout=0.15,
+                        )
                     )
                 except TimeoutError:
                     if await queues_are_finished():
@@ -394,21 +450,23 @@ async def crawl_site(
 
                 try:
                     async with state_lock:
-                        browser_queued.discard(requested_url)
+                        current_priority = browser_priority.get(requested_url)
+
+                        # 같은 URL이 더 높은 우선순위로 재등록된 경우
+                        # 오래된 큐 항목은 버린다.
+                        if current_priority != (source_rank, pattern_rank):
+                            continue
+
+                        browser_priority.pop(requested_url, None)
 
                         if requested_url in browser_visited:
                             continue
 
-                        if claimed_count >= max_pages:
-                            page_limit_reached = True
-                            stop_event.set()
-                            continue
-
                         browser_visited.add(requested_url)
-                        claimed_count += 1
+                        attempted_count += 1
                         active_browser_workers += 1
                         claimed = True
-                        ordinal = claimed_count
+                        ordinal = attempted_count
 
                     print(
                         f"[ARGUS][W{worker_id}] 페이지 정밀 탐색 "
@@ -448,7 +506,7 @@ async def crawl_site(
                             )
                         continue
 
-                    final_url = _canonicalize_url(page.url)
+                    final_url = _canonicalize_pipeline_url(page.url)
                     final_parsed = urlsplit(final_url)
 
                     if (
@@ -465,8 +523,6 @@ async def crawl_site(
                     ):
                         continue
 
-                    # 서로 다른 URL이 같은 최종 URL로 리다이렉트돼도
-                    # 5-pass 정밀검사를 한 번만 수행한다.
                     async with state_lock:
                         known_page_urls.add(final_url)
 
@@ -498,24 +554,38 @@ async def crawl_site(
                     page_result["url"] = final_url
                     links = page_result.pop("links", set())
 
+                    # 렌더링된 DOM에서 실제로 보인 링크는 최우선으로 승격한다.
+                    for link in sorted(links):
+                        await schedule_page(link, source="browser")
+
+                    reached_cap = False
+
                     async with state_lock:
                         scanning_urls.discard(final_url)
                         reserved_final_url = None
 
                         if final_url not in scanned_urls:
-                            scanned_urls.add(final_url)
-                            pages.append(page_result)
+                            if max_pages is None or len(pages) < max_pages:
+                                scanned_urls.add(final_url)
+                                pages.append(page_result)
 
                         completed_count = len(pages)
 
-                    # JS/DOM에서만 나타난 링크도 동일 파이프라인으로 넣는다.
-                    for link in sorted(links):
-                        await schedule_page(link)
+                        if (
+                            max_pages is not None
+                            and completed_count >= max_pages
+                        ):
+                            page_limit_reached = True
+                            reached_cap = True
+                            stop_event.set()
 
                     print(
                         f"[ARGUS][W{worker_id}] 완료 "
                         f"{completed_count}: {final_url}"
                     )
+
+                    if reached_cap:
+                        return
 
                 finally:
                     if reserved_final_url is not None:
@@ -582,9 +652,6 @@ async def crawl_site(
     pending_count = browser_queue.qsize() + interrupted_count
     discovery_pending_count = discovery_queue.qsize()
 
-    if claimed_count >= max_pages and pending_count > 0:
-        page_limit_reached = True
-
     return {
         "entry_url": canonical_entry,
         "pages": pages,
@@ -614,7 +681,8 @@ async def crawl_site(
         "worker_count": worker_count,
         "discovery_worker_count": discovery_worker_count,
         "known_page_count": len(known_page_urls),
-        "claimed_count": claimed_count,
+        "attempted_count": attempted_count,
+        "claimed_count": attempted_count,
         "discovery_fetch_count": discovery_fetch_count,
         "discovery_html_count": discovery_html_count,
         "discovery_robots_count": discovery_robots_count,
