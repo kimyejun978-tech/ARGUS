@@ -168,7 +168,6 @@ def _context_text(candidate, page_titles, page_elements, max_chars=900):
             if count >= limit:
                 break
 
-    # 가장 가까운 형제/자식 문맥을 우선하고, 부족할 때만 한 단계 넓힌다.
     collect(parent, 8)
     if len(nearby) < 4:
         collect(grandparent, 6)
@@ -177,7 +176,6 @@ def _context_text(candidate, page_titles, page_elements, max_chars=900):
     title = _normalize_text(page_titles.get(url, ""))
 
     if own:
-        # 후보 자체는 주변 문맥보다 조금 더 강하게 반영한다.
         parts.extend([own, own])
 
     if title:
@@ -206,8 +204,10 @@ def _technique_strength(candidate):
         return min(0.78, score)
 
     if technique == "OFFSCREEN":
-        # display:none 하나만으로는 정상 UI가 너무 많이 잡힌다.
-        if reasons and all("display:none" in reason for reason in candidate.get("reason", [])):
+        if reasons and all(
+            "display:none" in reason
+            for reason in candidate.get("reason", [])
+        ):
             return 0.28
 
         score = 0.48
@@ -352,10 +352,12 @@ def verify_candidates(candidate_groups, pages=None):
         evidence_semantic = semantic_risk_probability(evidence_text)
         context_semantic = semantic_risk_probability(context)
 
-        # 후보 자체를 중심으로 하되, 주변 문맥이 더 강할 경우 일정 부분 반영한다.
-        semantic_score = max(
-            evidence_semantic,
-            0.62 * evidence_semantic + 0.38 * context_semantic,
+        # 주변 문맥은 단순 보너스가 아니라 정상 UI 오탐을 낮추는 반대 증거로도 사용한다.
+        # 예: '회원 가입' 같은 짧은 문구가 단독으로는 높게 보여도 주변이
+        # 개인정보/계정/도움말 문맥이면 전체 의미 점수가 내려간다.
+        semantic_score = (
+            0.58 * evidence_semantic
+            + 0.42 * context_semantic
         )
 
         structure_score = _technique_strength(candidate)
@@ -369,7 +371,6 @@ def verify_candidates(candidate_groups, pages=None):
         )
         ui_penalty = _ui_landmark_penalty(candidate)
 
-        # 공통 UI가 여러 페이지에서 반복되면 UI 패널티를 조금 더 강화한다.
         if ui_penalty and repeat_count >= 3:
             ui_penalty += 0.08
 
