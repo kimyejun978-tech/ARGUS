@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ARGUS Multi Scan Test</title>
+    <style>
+        #mobile-only-hidden {
+            position: static;
+        }
+
+        @media (max-width: 500px) {
+            #mobile-only-hidden {
+                position: absolute;
+                left: -9999px;
+            }
+        }
+
+        .spacer {
+            height: 1800px;
+        }
+    </style>
+</head>
+<body>
+    <h1>ARGUS 다중 검사 회귀 테스트</h1>
+    <p>NORMAL STATIC TEXT</p>
+
+    <p id="mobile-only-hidden">SAFE MOBILE OFFSCREEN TEST</p>
+
+    <div class="spacer"></div>
+    <div id="lazy-zone">스크롤 테스트 영역</div>
+
+    <script>
+        setTimeout(() => {
+            const delayed = document.createElement("p");
+            delayed.id = "delayed-jamo";
+            delayed.textContent = "ㅌㅔㅅㅡㅌㅡ MULTI JAMO TEST";
+            document.body.appendChild(delayed);
+        }, 250);
+
+        let inserted = false;
+        window.addEventListener("scroll", () => {
+            if (inserted) return;
+
+            if (window.scrollY > 900) {
+                inserted = true;
+                const lazy = document.createElement("p");
+                lazy.id = "lazy-offscreen";
+                lazy.textContent = "SAFE LAZY OFFSCREEN TEST";
+                lazy.style.position = "absolute";
+                lazy.style.left = "-9999px";
+                document.body.appendChild(lazy);
+            }
+        });
+    </script>
+</body>
+</html>
