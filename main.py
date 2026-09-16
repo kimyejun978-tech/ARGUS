@@ -4,7 +4,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from crawler import crawl_site
+from crawler_parallel import crawl_site
 from detectors.homoglyph import detect_homoglyph_candidates
 from detectors.jamo import detect_jamo_candidates
 from detectors.offscreen import detect_offscreen_candidates
@@ -14,10 +14,11 @@ from verifier.rule_based import verify_candidates
 
 
 # 정밀 검사 우선 정책.
-# 대회 타임아웃(30분)보다 여유를 두고 25분을 기본 예산으로 사용하며,
-# 페이지 수는 무한 루프 방지용 큰 하드 세이프티만 둔다.
+# 정상 종료 조건은 "발견한 URL 큐가 모두 비는 것"이다.
+# 아래 시간은 목표 시간이 아니라 대회 30분 상한 전에 결과를 보존하기 위한 비상 watchdog이다.
 MAX_CRAWL_PAGES = int(os.getenv("ARGUS_MAX_PAGES", "10000"))
-MAX_CRAWL_SECONDS = float(os.getenv("ARGUS_MAX_SECONDS", "1500"))
+MAX_CRAWL_SECONDS = float(os.getenv("ARGUS_MAX_SECONDS", "1620"))
+CRAWL_WORKERS = max(1, int(os.getenv("ARGUS_WORKERS", "4")))
 
 
 def normalize_target(target):
@@ -68,8 +69,12 @@ async def main():
 
     print("[ARGUS] 진입 URL :", target)
     print(
-        f"[ARGUS] 정밀 탐색 예산 : 최대 {MAX_CRAWL_SECONDS:.0f}초 / "
+        f"[ARGUS] 비상 watchdog : {MAX_CRAWL_SECONDS:.0f}초 / "
         f"하드 최대 {MAX_CRAWL_PAGES}페이지"
+    )
+    print(
+        f"[ARGUS] 병렬 검사 : {CRAWL_WORKERS} worker / "
+        "각 페이지 5-pass 정밀 검사"
     )
     print(
         "[ARGUS] 다중 검사 : 데스크톱 즉시·안정·스크롤 + "
@@ -83,6 +88,7 @@ async def main():
         target,
         max_pages=MAX_CRAWL_PAGES,
         max_seconds=MAX_CRAWL_SECONDS,
+        worker_count=CRAWL_WORKERS,
     )
 
     transparent_candidates = []
@@ -132,6 +138,7 @@ async def main():
     print("==============================")
     print("         분석 결과")
     print("==============================")
+    print("병렬 worker 수   :", crawl_result.get("worker_count", CRAWL_WORKERS))
     print("분석 페이지 수   :", crawl_result["page_count"])
     print("분석 frame 수    :", crawl_result["frame_count"])
     print("고유 텍스트 요소 :", crawl_result["element_count"])
@@ -150,16 +157,18 @@ async def main():
 
     if crawl_result.get("time_limit_reached"):
         print(
-            f"주의              : 탐색 시간 예산 {MAX_CRAWL_SECONDS:.0f}초에 도달했습니다. "
-            f"대기 URL {crawl_result.get('pending_count', 0)}개"
+            f"주의              : 비상 watchdog "
+            f"{MAX_CRAWL_SECONDS:.0f}초에 도달했습니다. "
+            f"미완료 URL 약 {crawl_result.get('pending_count', 0)}개"
         )
     elif crawl_result.get("page_limit_reached"):
         print(
-            f"주의              : 하드 페이지 안전장치 {MAX_CRAWL_PAGES}개에 도달했습니다."
+            f"주의              : 하드 페이지 안전장치 "
+            f"{MAX_CRAWL_PAGES}개에 도달했습니다."
         )
 
     if crawl_result["errors"]:
-        print("접속 실패 페이지 :", len(crawl_result["errors"]))
+        print("접속/검사 실패   :", len(crawl_result["errors"]))
 
     if verified_candidates:
         print()
