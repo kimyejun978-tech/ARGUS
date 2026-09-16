@@ -3,6 +3,8 @@ import unicodedata
 from collections import defaultdict
 from urllib.parse import urlsplit
 
+from verifier.multilingual_semantic import multilingual_semantic_score
+from verifier.open_set import open_set_anomaly_score
 from verifier.semantic_model import semantic_risk_probability
 
 
@@ -30,8 +32,6 @@ def _candidate_text(candidate):
 
 
 def _is_local_test_candidate(candidate):
-    """로컬 회귀 테스트 SAMPLE/TEST 표식만 테스트 정답으로 강제 통과한다."""
-
     url = candidate.get("url", "")
     parsed = urlsplit(url)
     host = (parsed.hostname or "").lower()
@@ -46,7 +46,7 @@ def _is_local_test_candidate(candidate):
 
 
 def _dedupe_candidates(candidates):
-    """공모전의 (url + location + technique) 단위로 다중 pass 관측을 합친다."""
+    """(url + location + technique) 단위로 5-pass 관측을 합친다."""
 
     merged = {}
     order = []
@@ -58,15 +58,21 @@ def _dedupe_candidates(candidates):
             candidate.get("technique"),
         )
 
+        scan_pass = candidate.get("scan_pass")
+
         if key not in merged:
             item = dict(candidate)
             item["observation_count"] = 1
+            item["scan_passes"] = [scan_pass] if scan_pass else []
             merged[key] = item
             order.append(key)
             continue
 
         item = merged[key]
         item["observation_count"] += 1
+
+        if scan_pass and scan_pass not in item["scan_passes"]:
+            item["scan_passes"].append(scan_pass)
 
         old_reasons = item.get("reason", [])
         new_reasons = candidate.get("reason", [])
@@ -100,11 +106,6 @@ def _selector_parent(selector):
 
 
 def _build_page_context(pages):
-    """
-    이미 5-pass에서 수집한 DOM 요소를 재사용해 후보 주변 문맥을 만든다.
-    추가 브라우저 접근 없이 selector의 부모/형제 관계를 근사한다.
-    """
-
     page_titles = {}
     page_elements = defaultdict(list)
 
@@ -154,10 +155,8 @@ def _context_text(candidate, page_titles, page_elements, max_chars=900):
 
             if other_selector == selector:
                 continue
-
             if not other_selector.startswith(prefix + " > "):
                 continue
-
             if other_text in seen_text:
                 continue
 
@@ -177,13 +176,11 @@ def _context_text(candidate, page_titles, page_elements, max_chars=900):
 
     if own:
         parts.extend([own, own])
-
     if title:
         parts.append(title)
 
     parts.extend(nearby)
-    combined = " ".join(parts)
-    return combined[:max_chars]
+    return " ".join(parts)[:max_chars]
 
 
 def _technique_strength(candidate):
@@ -298,17 +295,16 @@ def _novelty_bonus(repeat_count):
 
 def verify_candidates(candidate_groups, pages=None):
     """
-    Contextual Verifier v2.
+    Contextual Verifier v3.
 
-    단일 위험 키워드 if문 대신 다음 증거를 결합한다.
-    1) 문자 n-gram 의미 모델
-    2) 은닉/위장 기법의 구조적 강도
-    3) 현재 사이트에서 동일 요소가 반복되는 정도
-    4) 한 요소에서 여러 기법이 겹치는지
-    5) dialog/nav/header/footer 같은 공통 UI 문맥
-    6) 후보 주변 DOM 텍스트
+    Known branch:
+      기존 문자 n-gram + 다국어 의미 모델 + 구조/문맥 결합
 
-    반환 형식은 기존 verifier와 동일한 (verified, rejected)다.
+    Open-set branch:
+      의미 모델이 처음 보는 문구라도 사이트 내부 희귀성, 은닉 강도,
+      다중 기법, 렌더링 상태 선택성, Unicode 이상도를 결합해 탐지한다.
+
+    semantic_score가 낮다는 이유만으로 정상 판정하지 않는 것이 핵심이다.
     """
 
     raw_candidates = [
@@ -334,8 +330,11 @@ def verify_candidates(candidate_groups, pages=None):
         item = dict(candidate)
 
         if _is_local_test_candidate(candidate):
+            item["verification_status"] = "CONFIRMED"
             item["verification_score"] = 1.0
             item["semantic_score"] = 1.0
+            item["multilingual_score"] = 1.0
+            item["open_set_score"] = 1.0
             item["structure_score"] = _technique_strength(candidate)
             item["verification_reason"] = "로컬 회귀 테스트 표식이 확인됨"
             item["is_violation"] = True
@@ -349,12 +348,16 @@ def verify_candidates(candidate_groups, pages=None):
         )
         evidence_text = _candidate_text(candidate)
 
-        evidence_semantic = semantic_risk_probability(evidence_text)
-        context_semantic = semantic_risk_probability(context)
+        legacy_evidence = semantic_risk_probability(evidence_text)
+        legacy_context = semantic_risk_probability(context)
+        multilingual_evidence, semantic_backend = multilingual_semantic_score(
+            evidence_text
+        )
+        multilingual_context, _ = multilingual_semantic_score(context)
 
-        # 주변 문맥은 단순 보너스가 아니라 정상 UI 오탐을 낮추는 반대 증거로도 사용한다.
-        # 예: '회원 가입' 같은 짧은 문구가 단독으로는 높게 보여도 주변이
-        # 개인정보/계정/도움말 문맥이면 전체 의미 점수가 내려간다.
+        evidence_semantic = max(legacy_evidence, multilingual_evidence)
+        context_semantic = max(legacy_context, multilingual_context)
+
         semantic_score = (
             0.58 * evidence_semantic
             + 0.42 * context_semantic
@@ -380,7 +383,7 @@ def verify_candidates(candidate_groups, pages=None):
         )
         novelty_bonus = _novelty_bonus(repeat_count)
 
-        verification_score = (
+        known_score = (
             0.56 * semantic_score
             + 0.27 * structure_score
             + novelty_bonus
@@ -388,32 +391,81 @@ def verify_candidates(candidate_groups, pages=None):
             - template_penalty
             - ui_penalty
         )
-        verification_score = max(0.0, min(1.0, verification_score))
+        known_score = max(0.0, min(1.0, known_score))
+
+        open_score, open_reasons = open_set_anomaly_score(
+            candidate,
+            structure_score=structure_score,
+            repeat_count=repeat_count,
+            repeat_ratio=repeat_ratio,
+            multi_technique_count=repetition["multi_technique_count"],
+            total_pages=total_pages,
+        )
 
         technique = candidate.get("technique")
         semantic_floor = (
-            0.53
+            0.50
             if technique in {"JAMO", "HOMOGLYPH"}
-            else 0.58
+            else 0.56
         )
 
-        is_violation = (
+        known_confirmed = (
             semantic_score >= semantic_floor
-            and verification_score >= 0.58
+            and known_score >= 0.58
         )
+
+        # 신유형은 의미 점수와 무관하게 구조/희귀성이 충분히 강하면 살린다.
+        open_suspicious = (
+            (
+                open_score >= 0.60
+                and structure_score >= 0.56
+                and repeat_count <= 2
+            )
+            or (
+                open_score >= 0.54
+                and repetition["multi_technique_count"] >= 2
+                and repeat_count <= 3
+            )
+            or (
+                open_score >= 0.56
+                and technique in {"JAMO", "HOMOGLYPH"}
+                and repeat_count <= 2
+            )
+        )
+
+        if known_confirmed:
+            status = "CONFIRMED"
+            is_violation = True
+        elif open_suspicious:
+            status = "SUSPICIOUS"
+            is_violation = True
+        else:
+            status = "BENIGN_LIKELY"
+            is_violation = False
+
+        verification_score = max(known_score, open_score)
 
         item["semantic_score"] = round(semantic_score, 3)
+        item["multilingual_score"] = round(
+            max(multilingual_evidence, multilingual_context),
+            3,
+        )
+        item["semantic_backend"] = semantic_backend
         item["structure_score"] = round(structure_score, 3)
+        item["known_score"] = round(known_score, 3)
+        item["open_set_score"] = round(open_score, 3)
         item["verification_score"] = round(verification_score, 3)
+        item["verification_status"] = status
         item["template_repeat_count"] = repeat_count
         item["template_repeat_ratio"] = round(repeat_ratio, 3)
         item["multi_technique_count"] = repetition["multi_technique_count"]
         item["is_violation"] = is_violation
 
         reason_parts = [
-            f"문맥 의미 {semantic_score:.2f}",
+            f"known 의미 {semantic_score:.2f}",
             f"구조 강도 {structure_score:.2f}",
-            f"최종 점수 {verification_score:.2f}",
+            f"known 결합 {known_score:.2f}",
+            f"open-set {open_score:.2f}",
         ]
 
         if repeat_count >= 2:
@@ -426,13 +478,22 @@ def verify_candidates(candidate_groups, pages=None):
             reason_parts.append(
                 f"동일 요소에서 {repetition['multi_technique_count']}개 기법 중첩"
             )
+        if open_reasons:
+            reason_parts.append("open-set: " + ", ".join(open_reasons))
 
-        if is_violation:
-            prefix = "문맥·구조·사이트 반복도를 결합한 검증에서 기준 초과"
+        if status == "CONFIRMED":
+            prefix = "알려진 의미·구조 결합 검증에서 기준 초과"
+            item["verification_reason"] = prefix + "; " + ", ".join(reason_parts)
+            verified.append(item)
+        elif status == "SUSPICIOUS":
+            prefix = (
+                "알려진 의미 유형과 일치하지 않아도 구조적 이상도가 높아 "
+                "신유형 의심 후보로 유지"
+            )
             item["verification_reason"] = prefix + "; " + ", ".join(reason_parts)
             verified.append(item)
         else:
-            prefix = "은닉/변조 후보지만 결합 검증 점수가 기준 미만"
+            prefix = "의미 및 open-set 결합 검증에서 정상 UI 가능성이 더 높음"
             item["verification_reason"] = prefix + "; " + ", ".join(reason_parts)
             rejected.append(item)
 
