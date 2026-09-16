@@ -55,7 +55,10 @@ def detect_transparent_candidates(page_result):
                 reasons,
 
             "opacity_source":
-                element["opacitySource"]
+                element["opacitySource"],
+
+            "scan_pass":
+                element.get("scan_pass"),
         }
 
 
