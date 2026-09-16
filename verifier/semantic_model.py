@@ -1,70 +1,46 @@
+import json
 import math
 import re
 import unicodedata
 from collections import Counter
+from pathlib import Path
 
 
-# 외부 API/GPU 없이 실행 가능한 초경량 문자 n-gram 분류기.
-# 단일 키워드 포함 여부가 아니라 여러 문자 조합의 분포를 함께 본다.
-# seed 문장은 실제 사이트 주소/서비스를 포함하지 않는 합성 학습 예시다.
-POSITIVE_SEEDS = [
-    "불법 광고 회원 모집 충전 환전 안내",
-    "사설 서비스 신규 가입 혜택 지급",
-    "우회 주소 접속 회원 가입 이벤트",
-    "가입 코드 문의 신규 회원 혜택",
-    "실시간 베팅 서비스 가입 보너스",
-    "슬롯 이벤트 신규 회원 충전 혜택",
-    "카지노 이벤트 가입 후 혜택 지급",
-    "불법 도박 홍보 가입 충전 환전",
-    "사설 토토 가입 코드 이벤트",
-    "바카라 신규 회원 이벤트",
-    "온라인 카지노 가입 보너스",
-    "베팅 사이트 가입 및 충전 안내",
-    "성인 광고 회원 전용 바로가기",
-    "19금 광고 가입 문의",
-    "제휴 문의 우회 링크 회원 모집",
-    "고액 배당 신규 회원 가입 혜택",
-    "실시간 게임 베팅 충전 이벤트",
-    "가입 즉시 보너스 지급 환전 가능",
-]
+SEED_PATH = Path(__file__).with_name("semantic_seed.json")
 
-NEGATIVE_SEEDS = [
-    "Telegram",
-    "Telegram 앱으로 메시지를 보내세요",
-    "소셜 앱 목록 Telegram Instagram WhatsApp",
-    "앱을 다운로드하고 친구와 대화하세요",
-    "개인정보 처리방침",
-    "이용약관 및 개인정보 보호",
-    "로그인",
-    "회원 가입",
-    "계정 만들기",
-    "비밀번호 찾기",
-    "고객센터 문의",
-    "앱 목록",
-    "게임 앱을 설치하세요",
-    "Chromebook에서 인기 앱을 사용하세요",
-    "메신저 앱으로 친구와 연락하세요",
-    "뉴스레터 구독 신청",
-    "결제 수단을 관리하세요",
-    "계정 충전 잔액을 확인하세요",
-    "출금 계좌를 등록하세요",
-    "이벤트 참여 혜택 안내",
-    "공식 제품 프로모션",
-    "무료 체험 시작하기",
-    "지원 센터",
-    "다운로드",
-    "공유",
-    "앱 열기",
-    "설정 저장",
-    "서비스 소개",
-    "제품 기능 살펴보기",
-    "알림 켜기",
-    "언어 선택",
-    "도움말",
-    "자주 묻는 질문",
-    "공식 커뮤니티",
-    "소셜 미디어 앱",
-]
+
+def _load_seed_corpus():
+    """
+    의미 분류 학습 데이터를 코드와 분리한다.
+    실제 라벨 데이터가 쌓이면 semantic_seed.json만 교체하면 되고
+    verifier 로직 자체를 수정할 필요가 없다.
+    """
+
+    try:
+        with SEED_PATH.open("r", encoding="utf-8") as file:
+            data = json.load(file)
+
+        positives = [
+            str(item).strip()
+            for item in data.get("positive", [])
+            if str(item).strip()
+        ]
+        negatives = [
+            str(item).strip()
+            for item in data.get("negative", [])
+            if str(item).strip()
+        ]
+
+        if positives and negatives:
+            return positives, negatives
+    except (OSError, ValueError, TypeError):
+        pass
+
+    # 패키징 누락 등 비정상 상황에서도 실행 자체는 가능하게 하는 최소 fallback.
+    return (
+        ["불법 광고 회원 모집", "우회 광고 가입 유도"],
+        ["로그인", "회원 가입", "개인정보 처리방침", "앱 목록"],
+    )
 
 
 def _normalize_text(text: str) -> str:
@@ -93,11 +69,11 @@ def _char_ngrams(text: str, min_n=2, max_n=5):
 
 class CharNgramNaiveBayes:
     """
-    작은 합성 seed corpus로 즉시 학습하는 Multinomial Naive Bayes.
+    외부 API/GPU가 필요 없는 초경량 문자 n-gram Multinomial Naive Bayes.
 
-    목적은 완성형 ML 모델이 아니라 단일 키워드 if문을 제거하고,
-    문자 조합과 주변 문맥을 함께 평가할 수 있는 가벼운 기본 모델을 제공하는 것이다.
-    추후 실제 라벨 데이터가 생기면 seed 대신 외부 학습 데이터로 교체할 수 있다.
+    단일 키워드 포함 여부가 아니라 여러 문자 조합의 분포를 함께 평가한다.
+    학습 데이터는 semantic_seed.json에서 읽기 때문에 향후 실제 라벨 데이터로
+    교체해도 이 코드의 판정 로직은 바뀌지 않는다.
     """
 
     def __init__(self, positive_examples=None, negative_examples=None, alpha=0.5):
@@ -107,8 +83,13 @@ class CharNgramNaiveBayes:
         self.total_ngrams = {0: 0, 1: 0}
         self.vocabulary = set()
 
-        positives = positive_examples or POSITIVE_SEEDS
-        negatives = negative_examples or NEGATIVE_SEEDS
+        if positive_examples is None or negative_examples is None:
+            loaded_positive, loaded_negative = _load_seed_corpus()
+            positives = positive_examples or loaded_positive
+            negatives = negative_examples or loaded_negative
+        else:
+            positives = positive_examples
+            negatives = negative_examples
 
         self._fit(positives, negatives)
 
