@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ARGUS Mock Site</title>
+  <style>
+    body{font-family:Arial,sans-serif;background:#0f1220;color:#f5f7ff;margin:0}
+    header{padding:20px 28px;background:#171b2e;position:sticky;top:0}
+    nav a{color:#dbe4ff;margin-right:18px;text-decoration:none}
+    main{max-width:980px;margin:auto;padding:28px}
+    .hero,.card{background:#1b2138;border:1px solid #303957;border-radius:14px;padding:22px;margin:18px 0}
+    .badge{display:inline-block;padding:6px 10px;border-radius:999px;background:#29304f;margin-right:8px}
+    .cta{display:inline-block;padding:12px 18px;background:#f1f3ff;color:#14182a;border-radius:10px;text-decoration:none;font-weight:bold}
+    .normal-hidden-menu{display:none}
+    .floating{position:fixed;right:20px;bottom:20px;background:#242b49;padding:12px;border-radius:12px}
+    .spacer{height:900px}
+  </style>
+</head>
+<body>
+<header>
+  <strong>ARGUS SAFE MOCK</strong>
+  <nav>
+    <a href="board.html">게시판</a>
+    <a href="post_jamo.html">이벤트</a>
+    <a href="post_homoglyph.html">프로모션</a>
+    <a href="post_hidden.html">자료실</a>
+    <a href="iframe_host.html">외부 위젯</a>
+  </nav>
+</header>
+<main>
+  <section class="hero">
+    <span class="badge">TEST ONLY</span><span class="badge">LOCALHOST</span>
+    <h1>배너·이벤트 중심 모의 페이지</h1>
+    <p>실제 서비스가 아닌 ARGUS 탐지 검증 전용 안전 샘플입니다.</p>
+    <a class="cta" href="board.html">게시판 보기</a>
+  </section>
+
+  <section class="card">
+    <h2>정상 콘텐츠</h2>
+    <p>공지사항, 고객센터, 이용안내 같은 일반적인 웹사이트 문구입니다.</p>
+    <p>HTML5 NORMAL / VERSION 2</p>
+  </section>
+
+  <section class="normal-hidden-menu" id="normal-menu">
+    <h2>정상적으로 숨겨진 메뉴</h2>
+    <p>로그인</p><p>회원정보 수정</p><p>알림 설정</p>
+  </section>
+
+  <div class="spacer"></div>
+  <p>NORMAL BELOW FOLD TEXT — 스크롤 아래 정상 콘텐츠</p>
+</main>
+<div class="floating">문의 위젯 (안전 샘플)</div>
+</body>
+</html>
