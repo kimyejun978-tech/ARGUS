@@ -9,6 +9,7 @@ from detectors.jamo import detect_jamo_candidates
 from detectors.offscreen import detect_offscreen_candidates
 from detectors.transparent import detect_transparent_candidates
 from json_exporter import export_result_json
+from verifier.rule_based import verify_candidates
 
 
 MAX_CRAWL_PAGES = 50
@@ -29,7 +30,7 @@ def normalize_target(target):
 def print_candidates(title, candidates):
     for index, candidate in enumerate(candidates, start=1):
         print()
-        print(f"[{title} 후보 {index}]")
+        print(f"[{title} {index}]")
         print("원문 :", candidate["evidence_text"])
         print("페이지 :", candidate["url"])
         print("위치 :", candidate["location"])
@@ -44,6 +45,9 @@ def print_candidates(title, candidates):
 
         if candidate.get("opacity_source"):
             print("숨김 적용 위치 :", candidate["opacity_source"])
+
+        if candidate.get("verification_reason"):
+            print("검증 :", candidate["verification_reason"])
 
 
 async def main():
@@ -83,6 +87,17 @@ async def main():
             detect_homoglyph_candidates(page_result)
         )
 
+    candidate_groups = [
+        transparent_candidates,
+        offscreen_candidates,
+        jamo_candidates,
+        homoglyph_candidates,
+    ]
+
+    verified_candidates, rejected_candidates = verify_candidates(
+        candidate_groups
+    )
+
     finished = datetime.now().astimezone()
     elapsed_sec = round(time.perf_counter() - start_timer, 3)
 
@@ -91,13 +106,10 @@ async def main():
         started_at=started.isoformat(timespec="seconds"),
         finished_at=finished.isoformat(timespec="seconds"),
         elapsed_sec=elapsed_sec,
-        candidate_groups=[
-            transparent_candidates,
-            offscreen_candidates,
-            jamo_candidates,
-            homoglyph_candidates,
-        ],
+        candidate_groups=[verified_candidates],
     )
+
+    raw_candidate_count = sum(len(group) for group in candidate_groups)
 
     print()
     print("==============================")
@@ -110,6 +122,9 @@ async def main():
     print("OFFSCREEN 후보   :", len(offscreen_candidates))
     print("JAMO 후보        :", len(jamo_candidates))
     print("HOMOGLYPH 후보   :", len(homoglyph_candidates))
+    print("구조 후보 합계   :", raw_candidate_count)
+    print("1차 검증 통과    :", len(verified_candidates))
+    print("1차 검증 보류    :", len(rejected_candidates))
     print("최종 findings    :", len(result_json["findings"]))
     print("result.json      :", result_path)
     print("탐지 시간        :", f"{elapsed_sec:.3f}초")
@@ -122,10 +137,19 @@ async def main():
     if crawl_result["errors"]:
         print("접속 실패 페이지 :", len(crawl_result["errors"]))
 
-    print_candidates("TRANSPARENT", transparent_candidates)
-    print_candidates("OFFSCREEN", offscreen_candidates)
-    print_candidates("JAMO", jamo_candidates)
-    print_candidates("HOMOGLYPH", homoglyph_candidates)
+    if verified_candidates:
+        print()
+        print("==============================")
+        print("       1차 검증 통과 후보")
+        print("==============================")
+        print_candidates("검증 통과 후보", verified_candidates)
+
+    if rejected_candidates:
+        print()
+        print(
+            f"[ARGUS] 정상 UI 가능성이 높은 후보 {len(rejected_candidates)}건은 "
+            "result.json에서 제외했습니다."
+        )
 
 
 if __name__ == "__main__":
