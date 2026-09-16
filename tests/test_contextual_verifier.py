@@ -1,0 +1,100 @@
+import unittest
+
+from verifier.contextual import verify_candidates
+
+
+class ContextualVerifierTests(unittest.TestCase):
+    def test_repeated_normal_dialog_text_is_rejected(self):
+        urls = [f"https://example.com/page-{index}" for index in range(4)]
+        selector = "section#social-apps-modal > div > ul > li > p"
+
+        candidates = []
+        pages = []
+
+        for url in urls:
+            candidates.append(
+                {
+                    "url": url,
+                    "location": selector,
+                    "evidence_text": "Telegram",
+                    "technique": "TRANSPARENT",
+                    "reason": [
+                        "opacity가 0인 요소 또는 부모 요소에 의해 숨겨짐"
+                    ],
+                    "opacity_source": "dialog#apps",
+                }
+            )
+            pages.append(
+                {
+                    "url": url,
+                    "title": "Popular social apps",
+                    "elements": [
+                        {"selector": selector, "text": "Telegram"},
+                        {
+                            "selector": "section#social-apps-modal > div > ul > li:nth-of-type(2) > p",
+                            "text": "Instagram",
+                        },
+                        {
+                            "selector": "section#social-apps-modal > div > ul > li:nth-of-type(3) > p",
+                            "text": "WhatsApp",
+                        },
+                    ],
+                }
+            )
+
+        verified, rejected = verify_candidates([candidates], pages=pages)
+
+        self.assertEqual(len(verified), 0)
+        self.assertEqual(len(rejected), 4)
+        self.assertTrue(all(item["is_violation"] is False for item in rejected))
+
+    def test_one_off_hidden_ad_context_can_pass(self):
+        url = "https://example.com/notice/1"
+        selector = "main > article > p.hidden"
+        candidate = {
+            "url": url,
+            "location": selector,
+            "evidence_text": "카지노 이벤트 가입 후 혜택 지급",
+            "technique": "TRANSPARENT",
+            "reason": ["텍스트 색상이 완전히 투명함"],
+            "opacity_source": selector,
+        }
+        pages = [
+            {
+                "url": url,
+                "title": "게시글",
+                "elements": [
+                    {"selector": selector, "text": candidate["evidence_text"]},
+                    {
+                        "selector": "main > article > h1",
+                        "text": "이벤트 안내",
+                    },
+                ],
+            }
+        ]
+
+        verified, rejected = verify_candidates([[candidate]], pages=pages)
+
+        self.assertEqual(len(verified), 1)
+        self.assertEqual(len(rejected), 0)
+        self.assertTrue(verified[0]["is_violation"])
+        self.assertGreaterEqual(verified[0]["verification_score"], 0.58)
+
+    def test_local_sample_marker_still_passes_regression_fixture(self):
+        candidate = {
+            "url": "http://127.0.0.1:8000/test.html",
+            "location": "body > p",
+            "evidence_text": "SAMPLE TEST",
+            "technique": "JAMO",
+            "reason": ["회귀 테스트"],
+        }
+
+        verified, rejected = verify_candidates([[candidate]], pages=[])
+
+        self.assertEqual(len(verified), 1)
+        self.assertEqual(len(rejected), 0)
+        self.assertEqual(verified[0]["verification_score"], 1.0)
+
+
+if __name__ == "__main__":
+    unittest.main()
