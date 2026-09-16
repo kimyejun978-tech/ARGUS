@@ -1,5 +1,7 @@
-from collections import deque
-from urllib.parse import parse_qsl, urlencode, urldefrag, urlsplit, urlunsplit
+import re
+import time
+from collections import Counter, deque
+from urllib.parse import parse_qsl, urlencode, urldefrag, unquote, urlsplit, urlunsplit
 
 from playwright.async_api import async_playwright
 
@@ -115,9 +117,6 @@ DOM_SCAN_SCRIPT = r"""
     const result = [];
     const elements = document.querySelectorAll("body *");
 
-    // 사용자에게 보이는 콘텐츠가 아니라 실행/설정 데이터를 담는 요소는
-    // 문자 위장 탐지 대상으로 보지 않는다. 특히 <script> 안 JSON이
-    // HOMOGLYPH로 오탐되는 문제를 막는다.
     const ignoredTags = new Set([
         "SCRIPT",
         "STYLE",
@@ -193,6 +192,7 @@ DOM_SCAN_SCRIPT = r"""
 
 STATIC_EXTENSIONS = {
     ".7z",
+    ".atom",
     ".avi",
     ".css",
     ".csv",
@@ -213,6 +213,7 @@ STATIC_EXTENSIONS = {
     ".ppt",
     ".pptx",
     ".rar",
+    ".rss",
     ".svg",
     ".tar",
     ".webm",
@@ -223,19 +224,50 @@ STATIC_EXTENSIONS = {
     ".zip",
 }
 
+TRACKING_QUERY_KEYS = {
+    "fbclid",
+    "gclid",
+    "mc_cid",
+    "mc_eid",
+}
+
+DYNAMIC_PATH_GROUPS = {
+    "article",
+    "articles",
+    "board",
+    "boards",
+    "character",
+    "characters",
+    "gallery",
+    "post",
+    "posts",
+    "series",
+    "tag",
+    "tags",
+}
+
 
 def _escape_css_attribute(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"')
 
 
 def _canonicalize_url(url: str) -> str:
-    """fragment를 제거하고 query 순서를 정규화해 중복 방문을 줄인다."""
+    """fragment와 대표 추적 파라미터를 제거해 중복 방문을 줄인다."""
 
     url, _ = urldefrag(url)
     parsed = urlsplit(url)
 
     if parsed.scheme in {"http", "https"}:
-        query_items = parse_qsl(parsed.query, keep_blank_values=True)
+        query_items = []
+
+        for key, value in parse_qsl(parsed.query, keep_blank_values=True):
+            lower_key = key.lower()
+
+            if lower_key.startswith("utm_") or lower_key in TRACKING_QUERY_KEYS:
+                continue
+
+            query_items.append((key, value))
+
         normalized_query = urlencode(sorted(query_items), doseq=True)
 
         return urlunsplit(
@@ -249,6 +281,52 @@ def _canonicalize_url(url: str) -> str:
         )
 
     return url
+
+
+def _url_pattern(url: str) -> str:
+    """
+    비슷한 URL이 탐색 슬롯을 독점하지 않도록 URL의 구조적 패턴을 만든다.
+
+    예:
+      /post/123 -> /post/{n}
+      /school/.../202601.html -> 숫자 부분을 {n}으로 일반화
+      /series/foo-all.html -> /series/{item}
+    """
+
+    parsed = urlsplit(url)
+    path = unquote(parsed.path or "/").lower()
+    segments = [segment for segment in path.split("/") if segment]
+    normalized_segments = []
+
+    previous = None
+
+    for segment in segments:
+        if previous in DYNAMIC_PATH_GROUPS:
+            normalized = "{item}"
+        else:
+            normalized = re.sub(r"\d+", "{n}", segment)
+
+            if normalized.endswith("-all.html"):
+                normalized = "{item}-all.html"
+
+        normalized_segments.append(normalized)
+        previous = segment.lower()
+
+    normalized_path = "/" + "/".join(normalized_segments)
+
+    if path.endswith("/") and normalized_path != "/":
+        normalized_path += "/"
+
+    query_keys = sorted(
+        key.lower()
+        for key, _ in parse_qsl(parsed.query, keep_blank_values=True)
+        if not key.lower().startswith("utm_")
+        and key.lower() not in TRACKING_QUERY_KEYS
+    )
+
+    query_signature = "&".join(query_keys)
+
+    return f"{parsed.scheme.lower()}://{(parsed.hostname or '').lower()}{normalized_path}?{query_signature}"
 
 
 def _is_supported_page_url(url: str) -> bool:
@@ -385,12 +463,21 @@ async def scan_page(url):
         return result
 
 
-async def crawl_site(entry_url, max_pages=50):
+async def crawl_site(
+    entry_url,
+    max_pages=1000,
+    max_seconds=180,
+    pattern_priority_samples=2,
+):
     """
-    진입 URL에서 같은 사이트의 링크를 BFS 방식으로 따라가며 검사한다.
+    진입 URL에서 같은 사이트를 탐색한다.
 
-    max_pages는 개발 단계의 안전장치다. 최종 대회 설정에서는 테스트 사이트
-    규모를 확인한 뒤 조정할 수 있다.
+    페이지 50개 같은 작은 고정 제한 대신:
+    - 서로 다른 URL 패턴을 먼저 방문
+    - 반복 패턴 URL은 후순위 큐에 보관
+    - 시간 예산과 큰 하드 페이지 제한을 함께 사용
+
+    반복 URL을 버리는 것이 아니라 '나중에' 검사하므로 범위와 시간을 균형 있게 쓴다.
     """
 
     canonical_entry = _canonicalize_url(entry_url)
@@ -402,11 +489,17 @@ async def crawl_site(entry_url, max_pages=50):
     if entry_parsed.hostname:
         allowed_hosts.add(entry_parsed.hostname.lower())
 
-    queue = deque([canonical_entry])
+    priority_queue = deque([canonical_entry])
+    deferred_queue = deque()
     queued = {canonical_entry}
     visited = set()
+    scanned_urls = set()
     pages = []
     errors = []
+
+    scheduled_patterns = Counter({_url_pattern(canonical_entry): 1})
+    start_timer = time.perf_counter()
+    time_limit_reached = False
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
@@ -416,8 +509,21 @@ async def crawl_site(entry_url, max_pages=50):
         )
         page = await context.new_page()
 
-        while queue and len(pages) < max_pages:
-            requested_url = queue.popleft()
+        while (
+            (priority_queue or deferred_queue)
+            and len(pages) < max_pages
+        ):
+            elapsed = time.perf_counter() - start_timer
+
+            if max_seconds is not None and elapsed >= max_seconds:
+                time_limit_reached = True
+                break
+
+            if priority_queue:
+                requested_url = priority_queue.popleft()
+            else:
+                requested_url = deferred_queue.popleft()
+
             queued.discard(requested_url)
 
             if requested_url in visited:
@@ -426,15 +532,26 @@ async def crawl_site(entry_url, max_pages=50):
             visited.add(requested_url)
 
             print(
-                f"[ARGUS] 페이지 탐색 {len(pages) + 1}/{max_pages}: "
+                f"[ARGUS] 페이지 탐색 {len(pages) + 1}: "
                 f"{requested_url}"
             )
+
+            timeout_ms = 30000
+
+            if max_seconds is not None:
+                remaining = max_seconds - (time.perf_counter() - start_timer)
+
+                if remaining <= 0:
+                    time_limit_reached = True
+                    break
+
+                timeout_ms = int(max(1000, min(30000, remaining * 1000)))
 
             try:
                 await page.goto(
                     requested_url,
                     wait_until="domcontentloaded",
-                    timeout=30000,
+                    timeout=timeout_ms,
                 )
                 await page.wait_for_timeout(150)
             except Exception as exc:
@@ -455,13 +572,18 @@ async def crawl_site(entry_url, max_pages=50):
             if not _is_same_site(final_url, allowed_hosts, entry_scheme):
                 continue
 
+            if final_url in scanned_urls:
+                continue
+
+            scanned_urls.add(final_url)
+
             page_result = await _scan_loaded_page(page)
             page_result["url"] = final_url
             pages.append(page_result)
 
             links = await _collect_links(page)
 
-            for link in links:
+            for link in sorted(links):
                 candidate = _canonicalize_url(link)
 
                 if not _is_supported_page_url(candidate):
@@ -473,11 +595,25 @@ async def crawl_site(entry_url, max_pages=50):
                 if candidate in visited or candidate in queued:
                     continue
 
-                queue.append(candidate)
+                pattern = _url_pattern(candidate)
+
+                if scheduled_patterns[pattern] < pattern_priority_samples:
+                    priority_queue.append(candidate)
+                else:
+                    deferred_queue.append(candidate)
+
+                scheduled_patterns[pattern] += 1
+                queue.add(candidate) if False else None
                 queued.add(candidate)
 
         await context.close()
         await browser.close()
+
+    pending_count = len(priority_queue) + len(deferred_queue)
+    page_limit_reached = (
+        len(pages) >= max_pages
+        and pending_count > 0
+    )
 
     return {
         "entry_url": canonical_entry,
@@ -485,6 +621,9 @@ async def crawl_site(entry_url, max_pages=50):
         "page_count": len(pages),
         "frame_count": sum(page.get("frame_count", 1) for page in pages),
         "element_count": sum(len(page["elements"]) for page in pages),
-        "limit_reached": bool(queue),
+        "limit_reached": page_limit_reached or time_limit_reached,
+        "page_limit_reached": page_limit_reached,
+        "time_limit_reached": time_limit_reached,
+        "pending_count": pending_count,
         "errors": errors,
     }
