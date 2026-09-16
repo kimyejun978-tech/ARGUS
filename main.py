@@ -2,6 +2,7 @@ import asyncio
 from pathlib import Path
 
 from crawler import scan_page
+from detectors.homoglyph import detect_homoglyph_candidates
 from detectors.jamo import detect_jamo_candidates
 from detectors.offscreen import detect_offscreen_candidates
 from detectors.transparent import detect_transparent_candidates
@@ -53,6 +54,7 @@ async def main():
     transparent_candidates = detect_transparent_candidates(result)
     offscreen_candidates = detect_offscreen_candidates(result)
     jamo_candidates = detect_jamo_candidates(result)
+    homoglyph_candidates = detect_homoglyph_candidates(result)
 
     print()
     print("==============================")
@@ -63,10 +65,12 @@ async def main():
     print("TRANSPARENT 후보 :", len(transparent_candidates))
     print("OFFSCREEN 후보   :", len(offscreen_candidates))
     print("JAMO 후보        :", len(jamo_candidates))
+    print("HOMOGLYPH 후보   :", len(homoglyph_candidates))
 
     print_candidates("TRANSPARENT", transparent_candidates)
     print_candidates("OFFSCREEN", offscreen_candidates)
     print_candidates("JAMO", jamo_candidates)
+    print_candidates("HOMOGLYPH", homoglyph_candidates)
 
 
 if __name__ == "__main__":
