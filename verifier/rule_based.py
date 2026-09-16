@@ -1,4 +1,4 @@
-from collections import Counter
+from collections import defaultdict
 from urllib.parse import urlsplit
 
 
@@ -72,6 +72,59 @@ def _is_display_none_only(candidate):
     return all("display:none" in reason for reason in reasons)
 
 
+def _dedupe_candidates(candidates):
+    """
+    다중 검사 패스에서 같은 요소가 여러 번 관측되어도
+    result.json의 1건 단위인 (url + location + technique) 기준으로 먼저 합친다.
+
+    서로 다른 패스에서 다른 근거가 발견되면 reason은 합집합으로 보존한다.
+    """
+
+    merged = {}
+    order = []
+
+    for candidate in candidates:
+        key = (
+            candidate.get("url"),
+            candidate.get("location"),
+            candidate.get("technique"),
+        )
+
+        if key not in merged:
+            item = dict(candidate)
+            item["observation_count"] = 1
+            merged[key] = item
+            order.append(key)
+            continue
+
+        item = merged[key]
+        item["observation_count"] += 1
+
+        old_reasons = item.get("reason", [])
+        new_reasons = candidate.get("reason", [])
+        item["reason"] = list(dict.fromkeys([*old_reasons, *new_reasons]))
+
+        old_text = item.get("evidence_text") or ""
+        new_text = candidate.get("evidence_text") or ""
+
+        if len(new_text) > len(old_text):
+            item["evidence_text"] = new_text
+
+        if candidate.get("normalized_text") and not item.get("normalized_text"):
+            item["normalized_text"] = candidate["normalized_text"]
+
+        # 더 많은 근거를 가진 관측의 좌표/은닉 출처를 우선 보존한다.
+        if len(new_reasons) >= len(old_reasons):
+            if candidate.get("rect") is not None:
+                item["rect"] = candidate["rect"]
+            if candidate.get("opacity_source"):
+                item["opacity_source"] = candidate["opacity_source"]
+            if candidate.get("display_source"):
+                item["display_source"] = candidate["display_source"]
+
+    return [merged[key] for key in order]
+
+
 def verify_candidates(candidate_groups):
     """
     구조 탐지 후보를 1차 의미 검증한다.
@@ -80,25 +133,26 @@ def verify_candidates(candidate_groups):
     - CSS/Unicode 기법이 발견됐다는 사실만으로 불법광고라고 확정하지 않는다.
     - 정규화된 텍스트에서 불법광고 내용 신호가 함께 확인될 때만 통과한다.
     - localhost/file 기반 모의 테스트의 SAMPLE/TEST 항목은 회귀 테스트를 위해 통과한다.
-
-    이 단계의 목적은 일반 사이트의 이모티콘, 사용자명, URL, 정상 숨김 UI 등을
-    result.json에 넣는 대량 오탐을 막는 것이다.
+    - 다중 검사에서 같은 요소가 반복 관측된 것은 하나로 합친 뒤 검증한다.
     """
 
-    candidates = [
+    raw_candidates = [
         candidate
         for group in candidate_groups
         for candidate in group
     ]
 
-    repeated_counter = Counter(
-        (
+    candidates = _dedupe_candidates(raw_candidates)
+
+    repeated_pages = defaultdict(set)
+
+    for candidate in candidates:
+        key = (
             candidate.get("technique"),
             candidate.get("location"),
             candidate.get("evidence_text"),
         )
-        for candidate in candidates
-    )
+        repeated_pages[key].add(candidate.get("url"))
 
     verified = []
     rejected = []
@@ -111,7 +165,7 @@ def verify_candidates(candidate_groups):
             candidate.get("location"),
             candidate.get("evidence_text"),
         )
-        repeat_count = repeated_counter[key]
+        repeat_count = len(repeated_pages[key])
 
         if _is_local_test_candidate(candidate):
             item["verification_reason"] = "로컬 회귀 테스트 표식이 확인됨"
