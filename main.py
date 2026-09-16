@@ -71,7 +71,7 @@ async def main():
     print("[ARGUS] 진입 URL :", target)
     print(
         f"[ARGUS] 비상 watchdog : {MAX_CRAWL_SECONDS:.0f}초 / "
-        f"하드 최대 {MAX_CRAWL_PAGES}페이지"
+        f"하드 최대 {MAX_CRAWL_PAGES} 완료 페이지"
     )
     print(
         f"[ARGUS] 브라우저 정밀 검사 : {CRAWL_WORKERS} worker / "
@@ -150,11 +150,12 @@ async def main():
         crawl_result.get("discovery_worker_count", DISCOVERY_WORKERS),
     )
     print("발견 고유 URL 수  :", crawl_result.get("known_page_count", 0))
+    print("정밀검사 시도 수 :", crawl_result.get("attempted_count", 0))
     print("HTTP fetch 수     :", crawl_result.get("discovery_fetch_count", 0))
     print("HTTP HTML 분석 수 :", crawl_result.get("discovery_html_count", 0))
     print("robots 분석 수    :", crawl_result.get("discovery_robots_count", 0))
     print("sitemap 분석 수   :", crawl_result.get("discovery_sitemap_count", 0))
-    print("분석 페이지 수   :", crawl_result["page_count"])
+    print("분석 완료 페이지 :", crawl_result["page_count"])
     print("분석 frame 수    :", crawl_result["frame_count"])
     print("고유 텍스트 요소 :", crawl_result["element_count"])
     print("다중 관측 요소   :", crawl_result.get("observation_count", 0))
@@ -179,7 +180,7 @@ async def main():
         )
     elif crawl_result.get("page_limit_reached"):
         print(
-            f"주의              : 하드 페이지 안전장치 "
+            f"주의              : 완료 페이지 안전장치 "
             f"{MAX_CRAWL_PAGES}개에 도달했습니다."
         )
 
