@@ -71,9 +71,14 @@ class CharNgramNaiveBayes:
     """
     외부 API/GPU가 필요 없는 초경량 문자 n-gram Multinomial Naive Bayes.
 
-    단일 키워드 포함 여부가 아니라 여러 문자 조합의 분포를 함께 평가한다.
-    학습 데이터는 semantic_seed.json에서 읽기 때문에 향후 실제 라벨 데이터로
-    교체해도 이 코드의 판정 로직은 바뀌지 않는다.
+    중요한 open-set 안전장치:
+    - 학습 vocabulary에 전혀 없는 n-gram은 분류 증거로 사용하지 않는다.
+    - 입력 중 학습 vocabulary와 실제로 겹치는 비율을 semantic support로 계산한다.
+    - support가 낮으면 posterior를 0.5 쪽으로 수축한다.
+
+    이 처리가 없으면 완전히 처음 보는 문자열도 클래스별 전체 n-gram 수 차이 때문에
+    한쪽 확률이 비정상적으로 높아질 수 있다. 그런 OOD 텍스트는 의미 모델이
+    억지로 CONFIRMED하지 않고 open-set branch가 판단하도록 넘기는 것이 목적이다.
     """
 
     def __init__(self, positive_examples=None, negative_examples=None, alpha=0.5):
@@ -110,11 +115,28 @@ class CharNgramNaiveBayes:
                 self.class_counts[label].values()
             )
 
-    def predict_proba(self, text: str) -> float:
-        grams = _char_ngrams(text)
+    def predict_details(self, text: str):
+        """(위험 확률, semantic support)을 반환한다."""
 
-        if not grams:
-            return 0.5
+        all_grams = _char_ngrams(text)
+
+        if not all_grams:
+            return 0.5, 0.0
+
+        total_gram_count = sum(all_grams.values())
+        known_grams = Counter(
+            {
+                gram: count
+                for gram, count in all_grams.items()
+                if gram in self.vocabulary
+            }
+        )
+        known_gram_count = sum(known_grams.values())
+        support = known_gram_count / max(1, total_gram_count)
+
+        # 완전히 미지의 텍스트는 의미 모델이 추측하지 않는다.
+        if not known_grams:
+            return 0.5, 0.0
 
         total_docs = self.doc_counts[0] + self.doc_counts[1]
         vocab_size = max(1, len(self.vocabulary))
@@ -131,7 +153,9 @@ class CharNgramNaiveBayes:
                 + self.alpha * vocab_size
             )
 
-            for gram, count in grams.items():
+            # OOV gram은 클래스별 denominator 차이만 누적시켜 오판을 만들 수 있으므로
+            # vocabulary에 실제로 존재하는 gram만 likelihood 계산에 사용한다.
+            for gram, count in known_grams.items():
                 numerator = (
                     self.class_counts[label].get(gram, 0)
                     + self.alpha
@@ -144,14 +168,25 @@ class CharNgramNaiveBayes:
         logit = max(-30.0, min(30.0, logit))
         probability = 1.0 / (1.0 + math.exp(-logit))
 
-        # 짧은 단일 토큰은 모델이 과신하지 않도록 0.5 쪽으로 완만하게 수축한다.
-        informative_chars = sum(
-            char.isalnum()
-            for char in _normalize_text(text)
-        )
-        confidence = min(1.0, informative_chars / 14.0)
+        normalized = _normalize_text(text)
+        informative_chars = sum(char.isalnum() for char in normalized)
+        length_confidence = min(1.0, informative_chars / 14.0)
 
-        return 0.5 + (probability - 0.5) * confidence
+        # vocabulary overlap가 약 35% 이상일 때 의미 모델의 확률을 온전히 신뢰한다.
+        # 그보다 낮으면 0.5 쪽으로 수축시켜 open-set branch에 판단권을 넘긴다.
+        support_confidence = min(1.0, support / 0.35)
+        confidence = length_confidence * support_confidence
+
+        calibrated = 0.5 + (probability - 0.5) * confidence
+        return calibrated, support
+
+    def predict_proba(self, text: str) -> float:
+        probability, _ = self.predict_details(text)
+        return probability
+
+    def semantic_support(self, text: str) -> float:
+        _, support = self.predict_details(text)
+        return support
 
 
 DEFAULT_MODEL = CharNgramNaiveBayes()
@@ -159,3 +194,7 @@ DEFAULT_MODEL = CharNgramNaiveBayes()
 
 def semantic_risk_probability(text: str) -> float:
     return DEFAULT_MODEL.predict_proba(text)
+
+
+def semantic_risk_with_support(text: str):
+    return DEFAULT_MODEL.predict_details(text)
