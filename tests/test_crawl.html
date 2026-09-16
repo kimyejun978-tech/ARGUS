@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>ARGUS Crawl Test</title>
+</head>
+<body>
+    <h1>ARGUS Multi Page Crawl Test</h1>
+
+    <p>NORMAL ENTRY PAGE</p>
+
+    <a href="crawl_page_jamo.html">JAMO 테스트 페이지</a>
+    <a href="crawl_page_offscreen.html">OFFSCREEN 테스트 페이지</a>
+
+    <!-- fragment 링크는 같은 페이지 중복 방문을 만들면 안 됨 -->
+    <a href="#bottom">현재 페이지 내부 이동</a>
+
+    <div id="bottom">END</div>
+</body>
+</html>
