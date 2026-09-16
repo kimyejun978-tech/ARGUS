@@ -246,6 +246,14 @@ DYNAMIC_PATH_GROUPS = {
     "tags",
 }
 
+# 정밀 모드의 다중 검사 뷰포트.
+# 같은 DOM이라도 media query에 따라 은닉 상태가 달라질 수 있어
+# 데스크톱과 모바일을 모두 관측한다.
+MULTI_SCAN_VIEWPORTS = [
+    ("desktop", {"width": 1280, "height": 720}),
+    ("mobile", {"width": 390, "height": 844}),
+]
+
 
 def _escape_css_attribute(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"')
@@ -284,20 +292,12 @@ def _canonicalize_url(url: str) -> str:
 
 
 def _url_pattern(url: str) -> str:
-    """
-    비슷한 URL이 탐색 슬롯을 독점하지 않도록 URL의 구조적 패턴을 만든다.
-
-    예:
-      /post/123 -> /post/{n}
-      /school/.../202601.html -> 숫자 부분을 {n}으로 일반화
-      /series/foo-all.html -> /series/{item}
-    """
+    """비슷한 URL이 탐색 슬롯을 독점하지 않도록 구조 패턴을 만든다."""
 
     parsed = urlsplit(url)
     path = unquote(parsed.path or "/").lower()
     segments = [segment for segment in path.split("/") if segment]
     normalized_segments = []
-
     previous = None
 
     for segment in segments:
@@ -326,7 +326,10 @@ def _url_pattern(url: str) -> str:
 
     query_signature = "&".join(query_keys)
 
-    return f"{parsed.scheme.lower()}://{(parsed.hostname or '').lower()}{normalized_path}?{query_signature}"
+    return (
+        f"{parsed.scheme.lower()}://{(parsed.hostname or '').lower()}"
+        f"{normalized_path}?{query_signature}"
+    )
 
 
 def _is_supported_page_url(url: str) -> bool:
@@ -336,7 +339,6 @@ def _is_supported_page_url(url: str) -> bool:
         return False
 
     path_lower = parsed.path.lower()
-
     return not any(path_lower.endswith(ext) for ext in STATIC_EXTENSIONS)
 
 
@@ -422,20 +424,204 @@ async def _collect_links(page):
     return links
 
 
-async def _scan_loaded_page(page):
-    title = await page.title()
+async def _wait_for_dom_quiet(page, quiet_ms=140, max_ms=900):
+    """
+    고정 sleep 대신 DOM 변경이 잠시 멈출 때까지 기다린다.
+    계속 변하는 페이지는 max_ms에서 강제로 빠져나온다.
+    """
+
+    try:
+        await page.evaluate(
+            """
+            ({quietMs, maxMs}) => new Promise(resolve => {
+                let finished = false;
+                let quietTimer = null;
+                let maxTimer = null;
+
+                const finish = () => {
+                    if (finished) return;
+                    finished = true;
+                    if (quietTimer) clearTimeout(quietTimer);
+                    if (maxTimer) clearTimeout(maxTimer);
+                    observer.disconnect();
+                    resolve(true);
+                };
+
+                const armQuietTimer = () => {
+                    if (quietTimer) clearTimeout(quietTimer);
+                    quietTimer = setTimeout(finish, quietMs);
+                };
+
+                const observer = new MutationObserver(armQuietTimer);
+                const root = document.documentElement || document;
+
+                observer.observe(root, {
+                    subtree: true,
+                    childList: true,
+                    attributes: true,
+                    characterData: true
+                });
+
+                armQuietTimer();
+                maxTimer = setTimeout(finish, maxMs);
+            })
+            """,
+            {"quietMs": quiet_ms, "maxMs": max_ms},
+        )
+    except Exception:
+        return
+
+
+async def _auto_scroll(page, max_steps=24, delay_ms=45):
+    """lazy-load/무한스크롤 계열 콘텐츠가 나타나도록 제한된 자동 스크롤을 수행한다."""
+
+    try:
+        await page.evaluate(
+            """
+            async ({maxSteps, delayMs}) => {
+                const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+                window.scrollTo(0, 0);
+                await sleep(delayMs);
+
+                let previousHeight = 0;
+                let stableBottomRounds = 0;
+
+                for (let i = 0; i < maxSteps; i++) {
+                    const height = Math.max(
+                        document.documentElement.scrollHeight,
+                        document.body ? document.body.scrollHeight : 0
+                    );
+
+                    const step = Math.max(Math.floor(window.innerHeight * 0.85), 420);
+                    const maxY = Math.max(0, height - window.innerHeight);
+                    const nextY = Math.min(window.scrollY + step, maxY);
+
+                    window.scrollTo(0, nextY);
+                    await sleep(delayMs);
+
+                    const newHeight = Math.max(
+                        document.documentElement.scrollHeight,
+                        document.body ? document.body.scrollHeight : 0
+                    );
+                    const atBottom = window.scrollY + window.innerHeight >= newHeight - 4;
+
+                    if (atBottom) {
+                        if (newHeight === previousHeight) {
+                            stableBottomRounds += 1;
+                        } else {
+                            stableBottomRounds = 0;
+                        }
+
+                        if (stableBottomRounds >= 2) {
+                            break;
+                        }
+                    }
+
+                    previousHeight = newHeight;
+                }
+            }
+            """,
+            {"maxSteps": max_steps, "delayMs": delay_ms},
+        )
+    except Exception:
+        return
+
+
+async def _capture_pass(page, pass_name):
     elements, frame_count = await _scan_frame(page.main_frame)
+
+    for element in elements:
+        element["scan_pass"] = pass_name
+
+    links = await _collect_links(page)
+
+    return {
+        "name": pass_name,
+        "elements": elements,
+        "frame_count": frame_count,
+        "links": links,
+    }
+
+
+async def _scan_loaded_page_multi(page):
+    """
+    하나의 페이지를 여러 상태에서 반복 검사한다.
+
+    1) 데스크톱 즉시 상태
+    2) 데스크톱 DOM 안정 상태
+    3) 데스크톱 스크롤 후 상태
+    4) 모바일 DOM 안정 상태
+    5) 모바일 스크롤 후 상태
+
+    각 패스의 요소를 모두 보존해 어느 한 상태에서만 숨겨지는 요소도 놓치지 않는다.
+    최종 후보 중복은 verifier에서 (url + location + technique) 기준으로 합친다.
+    """
+
+    title = await page.title()
+    passes = []
+
+    desktop_name, desktop_viewport = MULTI_SCAN_VIEWPORTS[0]
+    await page.set_viewport_size(desktop_viewport)
+    await page.evaluate("window.scrollTo(0, 0)")
+
+    passes.append(
+        await _capture_pass(page, f"{desktop_name}-initial")
+    )
+
+    await _wait_for_dom_quiet(page)
+    passes.append(
+        await _capture_pass(page, f"{desktop_name}-settled")
+    )
+
+    await _auto_scroll(page)
+    await _wait_for_dom_quiet(page)
+    passes.append(
+        await _capture_pass(page, f"{desktop_name}-scrolled")
+    )
+
+    mobile_name, mobile_viewport = MULTI_SCAN_VIEWPORTS[1]
+    await page.set_viewport_size(mobile_viewport)
+    await page.evaluate("window.scrollTo(0, 0)")
+    await _wait_for_dom_quiet(page)
+    passes.append(
+        await _capture_pass(page, f"{mobile_name}-settled")
+    )
+
+    await _auto_scroll(page)
+    await _wait_for_dom_quiet(page)
+    passes.append(
+        await _capture_pass(page, f"{mobile_name}-scrolled")
+    )
+
+    all_elements = []
+    all_links = set()
+    max_frame_count = 1
+
+    for scan_pass in passes:
+        all_elements.extend(scan_pass["elements"])
+        all_links.update(scan_pass["links"])
+        max_frame_count = max(max_frame_count, scan_pass["frame_count"])
+
+    unique_elements = {
+        (element.get("selector"), element.get("text"))
+        for element in all_elements
+    }
 
     return {
         "title": title,
         "url": page.url,
-        "elements": elements,
-        "frame_count": frame_count,
+        "elements": all_elements,
+        "frame_count": max_frame_count,
+        "unique_element_count": len(unique_elements),
+        "observation_count": len(all_elements),
+        "scan_pass_count": len(passes),
+        "scan_passes": [scan_pass["name"] for scan_pass in passes],
+        "links": all_links,
     }
 
 
 async def scan_page(url):
-    """단일 페이지 검사. 기존 테스트와 디버깅용으로 유지한다."""
+    """단일 페이지 정밀 다중 검사. 테스트/디버깅용으로 유지한다."""
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
@@ -452,10 +638,10 @@ async def scan_page(url):
             wait_until="domcontentloaded",
             timeout=30000,
         )
-        await page.wait_for_timeout(150)
 
-        print("[ARGUS] DOM 및 iframe 분석 중...")
-        result = await _scan_loaded_page(page)
+        print("[ARGUS] 다중 DOM/iframe 분석 중...")
+        result = await _scan_loaded_page_multi(page)
+        result.pop("links", None)
 
         await context.close()
         await browser.close()
@@ -465,19 +651,17 @@ async def scan_page(url):
 
 async def crawl_site(
     entry_url,
-    max_pages=1000,
-    max_seconds=180,
+    max_pages=10000,
+    max_seconds=1500,
     pattern_priority_samples=2,
 ):
     """
-    진입 URL에서 같은 사이트를 탐색한다.
+    진입 URL에서 같은 사이트를 정밀 탐색한다.
 
-    페이지 50개 같은 작은 고정 제한 대신:
-    - 서로 다른 URL 패턴을 먼저 방문
-    - 반복 패턴 URL은 후순위 큐에 보관
-    - 시간 예산과 큰 하드 페이지 제한을 함께 사용
-
-    반복 URL을 버리는 것이 아니라 '나중에' 검사하므로 범위와 시간을 균형 있게 쓴다.
+    - URL 패턴은 우선순위에만 사용하고 반복 URL을 버리지 않는다.
+    - 발견한 모든 고유 URL은 시간이 허용되는 한 실제 브라우저 검사한다.
+    - 각 URL은 데스크톱/모바일, 초기/안정/스크롤 상태로 다중 검사한다.
+    - 시간 예산과 큰 하드 페이지 제한은 무한 크롤링 방지용 안전장치다.
     """
 
     canonical_entry = _canonicalize_url(entry_url)
@@ -532,7 +716,7 @@ async def crawl_site(
             visited.add(requested_url)
 
             print(
-                f"[ARGUS] 페이지 탐색 {len(pages) + 1}: "
+                f"[ARGUS] 페이지 정밀 탐색 {len(pages) + 1}: "
                 f"{requested_url}"
             )
 
@@ -548,12 +732,12 @@ async def crawl_site(
                 timeout_ms = int(max(1000, min(30000, remaining * 1000)))
 
             try:
+                await page.set_viewport_size({"width": 1280, "height": 720})
                 await page.goto(
                     requested_url,
                     wait_until="domcontentloaded",
                     timeout=timeout_ms,
                 )
-                await page.wait_for_timeout(150)
             except Exception as exc:
                 errors.append(
                     {
@@ -577,11 +761,20 @@ async def crawl_site(
 
             scanned_urls.add(final_url)
 
-            page_result = await _scan_loaded_page(page)
-            page_result["url"] = final_url
-            pages.append(page_result)
+            try:
+                page_result = await _scan_loaded_page_multi(page)
+            except Exception as exc:
+                errors.append(
+                    {
+                        "url": final_url,
+                        "error": f"multi-scan failed: {exc}",
+                    }
+                )
+                continue
 
-            links = await _collect_links(page)
+            page_result["url"] = final_url
+            links = page_result.pop("links", set())
+            pages.append(page_result)
 
             for link in sorted(links):
                 candidate = _canonicalize_url(link)
@@ -603,7 +796,6 @@ async def crawl_site(
                     deferred_queue.append(candidate)
 
                 scheduled_patterns[pattern] += 1
-                queue.add(candidate) if False else None
                 queued.add(candidate)
 
         await context.close()
@@ -620,7 +812,18 @@ async def crawl_site(
         "pages": pages,
         "page_count": len(pages),
         "frame_count": sum(page.get("frame_count", 1) for page in pages),
-        "element_count": sum(len(page["elements"]) for page in pages),
+        "element_count": sum(
+            page.get("unique_element_count", len(page["elements"]))
+            for page in pages
+        ),
+        "observation_count": sum(
+            page.get("observation_count", len(page["elements"]))
+            for page in pages
+        ),
+        "scan_pass_count": sum(
+            page.get("scan_pass_count", 1)
+            for page in pages
+        ),
         "limit_reached": page_limit_reached or time_limit_reached,
         "page_limit_reached": page_limit_reached,
         "time_limit_reached": time_limit_reached,
