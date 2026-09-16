@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>ARGUS Mock Hidden Content</title>
+  <style>
+    body{font-family:Arial,sans-serif;background:#f6f7fb;color:#222;padding:30px}
+    .card{background:white;padding:22px;border-radius:12px;margin:16px 0}
+    .opacity-zero{opacity:0}
+    .transparent-text{color:transparent}
+    .same-color{color:#ffffff;background:#ffffff}
+    .far-left{position:absolute;left:-9999px;top:150px}
+    .tiny{font-size:1px}
+    .hidden-panel{display:none}
+  </style>
+</head>
+<body>
+  <h1>숨김 요소 테스트 게시물</h1>
+
+  <div class="card">
+    <h2>정상 표시 콘텐츠</h2>
+    <p>민원 안내와 공지사항입니다.</p>
+  </div>
+
+  <div class="card">
+    <p class="opacity-zero">SAFE PROMO SAMPLE OPACITY</p>
+    <p class="transparent-text">SAFE PROMO SAMPLE TRANSPARENT</p>
+    <p class="same-color">SAFE PROMO SAMPLE SAME COLOR</p>
+    <p class="far-left">SAFE PROMO SAMPLE FAR LEFT</p>
+    <p class="tiny">SAFE PROMO SAMPLE TINY</p>
+  </div>
+
+  <!-- 정상 UI에도 display:none이 존재한다는 오탐 회귀 테스트 -->
+  <div class="hidden-panel" id="normal-settings-panel">
+    <p>알림 설정</p>
+    <p>개인정보 설정</p>
+    <button>확인</button>
+  </div>
+
+  <p><a href="board.html">게시판으로</a></p>
+</body>
+</html>
