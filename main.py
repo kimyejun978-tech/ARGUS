@@ -1,4 +1,5 @@
 import asyncio
+import os
 import time
 from datetime import datetime
 from pathlib import Path
@@ -12,7 +13,10 @@ from json_exporter import export_result_json
 from verifier.rule_based import verify_candidates
 
 
-MAX_CRAWL_PAGES = 50
+# 작은 고정 50페이지 제한은 정답 URL을 놓칠 수 있다.
+# 기본은 시간 예산 중심으로 탐색하고, 1000페이지는 무한 크롤링 방지용 하드 세이프티다.
+MAX_CRAWL_PAGES = int(os.getenv("ARGUS_MAX_PAGES", "1000"))
+MAX_CRAWL_SECONDS = float(os.getenv("ARGUS_MAX_SECONDS", "180"))
 
 
 def normalize_target(target):
@@ -59,6 +63,10 @@ async def main():
     target = normalize_target(target)
 
     print("[ARGUS] 진입 URL :", target)
+    print(
+        f"[ARGUS] 탐색 예산 : 최대 {MAX_CRAWL_SECONDS:.0f}초 / "
+        f"하드 최대 {MAX_CRAWL_PAGES}페이지"
+    )
 
     started = datetime.now().astimezone()
     start_timer = time.perf_counter()
@@ -66,6 +74,7 @@ async def main():
     crawl_result = await crawl_site(
         target,
         max_pages=MAX_CRAWL_PAGES,
+        max_seconds=MAX_CRAWL_SECONDS,
     )
 
     transparent_candidates = []
@@ -129,9 +138,14 @@ async def main():
     print("result.json      :", result_path)
     print("탐지 시간        :", f"{elapsed_sec:.3f}초")
 
-    if crawl_result["limit_reached"]:
+    if crawl_result.get("time_limit_reached"):
         print(
-            f"주의              : 페이지 제한 {MAX_CRAWL_PAGES}개에 도달했습니다."
+            f"주의              : 탐색 시간 예산 {MAX_CRAWL_SECONDS:.0f}초에 도달했습니다. "
+            f"대기 URL {crawl_result.get('pending_count', 0)}개"
+        )
+    elif crawl_result.get("page_limit_reached"):
+        print(
+            f"주의              : 하드 페이지 안전장치 {MAX_CRAWL_PAGES}개에 도달했습니다."
         )
 
     if crawl_result["errors"]:
@@ -147,8 +161,8 @@ async def main():
     if rejected_candidates:
         print()
         print(
-            f"[ARGUS] 정상 UI 가능성이 높은 후보 {len(rejected_candidates)}건은 "
-            "result.json에서 제외했습니다."
+            f"[ARGUS] 기법은 감지됐지만 불법광고 내용 신호가 부족한 "
+            f"후보 {len(rejected_candidates)}건은 result.json에서 제외했습니다."
         )
 
 
