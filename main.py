@@ -1,3 +1,4 @@
+from detectors.offscreen import detect_offscreen_candidates
 import asyncio
 from pathlib import Path
 
@@ -39,6 +40,11 @@ async def main():
     candidates = detect_transparent_candidates(
         result
     )
+    offscreen_candidates = (
+        detect_offscreen_candidates(
+            result
+    )
+)
 
     print()
     print("==============================")
@@ -60,13 +66,20 @@ async def main():
         len(candidates)
     )
 
+    print(
+        "OFFSCREEN 후보   :",
+        len(offscreen_candidates)
+    )
+
     for index, candidate in enumerate(
-        candidates,
+        offscreen_candidates,
         start=1
     ):
 
         print()
-        print(f"[후보 {index}]")
+        print(
+            f"[OFFSCREEN 후보 {index}]"
+        )
 
         print(
             "원문 :",
@@ -85,14 +98,15 @@ async def main():
 
         print(
             "근거 :",
-            ", ".join(candidate["reason"])
+            ", ".join(
+                candidate["reason"]
+            )
         )
 
-        if candidate["opacity_source"]:
-            print(
-                "숨김 적용 위치 :",
-                candidate["opacity_source"]
-            )
+        print(
+            "좌표 :",
+            candidate["rect"]
+        )
 
 
 if __name__ == "__main__":

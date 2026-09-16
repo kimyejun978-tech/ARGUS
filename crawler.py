@@ -311,9 +311,7 @@ async def scan_page(url):
                                 style.visibility,
 
                             opacity:
-                                Number(
-                                    style.opacity
-                                ),
+                                Number(style.opacity),
 
                             color:
                                 textColor,
@@ -325,7 +323,13 @@ async def scan_page(url):
                                 style.fontSize,
 
                             position:
-                                style.position
+                                style.position,
+
+                            left:
+                                style.left,
+
+                            top:
+                                style.top
                         },
 
                         effectiveOpacity:
@@ -357,7 +361,16 @@ async def scan_page(url):
 
                             height:
                                 rect.height
-                        }
+                        },
+
+                        inViewport:
+
+                            rect.width > 0 &&
+                            rect.height > 0 &&
+                            rect.bottom > 0 &&
+                            rect.right > 0 &&
+                            rect.top < window.innerHeight &&
+                            rect.left < window.innerWidth
 
                     });
                 }
