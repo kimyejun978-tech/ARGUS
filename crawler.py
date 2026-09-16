@@ -115,7 +115,23 @@ DOM_SCAN_SCRIPT = r"""
     const result = [];
     const elements = document.querySelectorAll("body *");
 
+    // 사용자에게 보이는 콘텐츠가 아니라 실행/설정 데이터를 담는 요소는
+    // 문자 위장 탐지 대상으로 보지 않는다. 특히 <script> 안 JSON이
+    // HOMOGLYPH로 오탐되는 문제를 막는다.
+    const ignoredTags = new Set([
+        "SCRIPT",
+        "STYLE",
+        "NOSCRIPT",
+        "TEMPLATE",
+        "META",
+        "LINK"
+    ]);
+
     for (const element of elements) {
+        if (ignoredTags.has(element.tagName)) {
+            continue;
+        }
+
         const directText = Array.from(element.childNodes)
             .filter(node => node.nodeType === Node.TEXT_NODE)
             .map(node => node.textContent || "")
