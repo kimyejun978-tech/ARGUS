@@ -17,8 +17,6 @@ MODERN_SYLLABLE_START_RE = re.compile(r"[\u1100-\u1112][\u1161-\u1175]")
 
 
 # 호환 자모를 실제 한글 음절로 조합하기 위한 인덱스 표.
-# NFKC만 사용하면 'ㅋㅜㅍㅗㄴ' 같은 문자열의 마지막 받침이
-# 완전히 합쳐지지 않는 경우가 있어 간단한 음절 조합기를 함께 사용한다.
 CHOSEONG_INDEX = {
     "ㄱ": 0, "ㄲ": 1, "ㄴ": 2, "ㄷ": 3, "ㄸ": 4, "ㄹ": 5,
     "ㅁ": 6, "ㅂ": 7, "ㅃ": 8, "ㅅ": 9, "ㅆ": 10, "ㅇ": 11,
@@ -51,8 +49,6 @@ def contains_jamo_obfuscation(text: str) -> bool:
     ):
         return False
 
-    # 단순 감정 표현 'ㅜㅜ', 'ㅡㅡ', 장식용 'ㅣ' 등은 초성+중성
-    # 조합이 없으므로 후보에서 제외한다.
     return bool(
         COMPAT_SYLLABLE_START_RE.search(text)
         or MODERN_SYLLABLE_START_RE.search(text)
@@ -60,8 +56,6 @@ def contains_jamo_obfuscation(text: str) -> bool:
 
 
 def _compose_compatibility_jamo(text: str) -> str:
-    """ㄱ/ㅏ 형태의 호환 자모를 가능한 범위에서 완성형 한글로 조합한다."""
-
     result = []
     index = 0
 
@@ -80,8 +74,6 @@ def _compose_compatibility_jamo(text: str) -> str:
 
             if index + 2 < len(text) and text[index + 2] in JONGSEONG_INDEX:
                 final_candidate = text[index + 2]
-
-                # 뒤에 바로 모음이 오면 다음 음절의 초성으로 사용하는 것이 자연스럽다.
                 can_start_next_syllable = (
                     final_candidate in CHOSEONG_INDEX
                     and index + 3 < len(text)
@@ -104,8 +96,6 @@ def _compose_compatibility_jamo(text: str) -> str:
 
 
 def normalize_jamo(text: str) -> str:
-    """호환 자모와 현대 한글 자모를 가능한 범위에서 완성형 음절로 합친다."""
-
     composed = _compose_compatibility_jamo(text)
 
     return unicodedata.normalize(
@@ -135,6 +125,7 @@ def detect_jamo_candidates(page_result):
                 "reason": [
                     "한글 음절을 우회하기 위한 초성·중성 분리 조합이 사용됨"
                 ],
+                "scan_pass": element.get("scan_pass"),
             }
         )
 
