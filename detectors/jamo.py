@@ -8,9 +8,12 @@ COMPATIBILITY_JAMO_RE = re.compile(r"[\u3131-\u318E]")
 # 유니코드 한글 자모 블록: ᄀ ~ ᇿ
 HANGUL_JAMO_RE = re.compile(r"[\u1100-\u11FF]")
 
-# 모음이 하나도 없는 'ㅋㅋㅋ', 'ㅎㅎ' 같은 표현은
-# 현재 단계에서는 JAMO 후보에서 제외한다.
-JAMO_VOWEL_RE = re.compile(r"[\u314F-\u3163\u1161-\u1175]")
+# 실제로 한 음절을 시작할 수 있는 '초성 + 중성' 조합만 후보로 본다.
+# 이 조건으로 ㅜㅜ, ㅡㅡ, ㅣ 같은 이모티콘/구분문자를 제외한다.
+COMPAT_SYLLABLE_START_RE = re.compile(
+    r"[ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ][ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ]"
+)
+MODERN_SYLLABLE_START_RE = re.compile(r"[\u1100-\u1112][\u1161-\u1175]")
 
 
 # 호환 자모를 실제 한글 음절로 조합하기 위한 인덱스 표.
@@ -40,19 +43,20 @@ JONGSEONG_INDEX = {
 
 
 def contains_jamo_obfuscation(text: str) -> bool:
-    """분리된 한글 자모가 실제 단어를 만들 가능성이 있는지 확인한다."""
+    """분리 자모가 실제 음절을 구성하려는 형태인지 확인한다."""
 
-    has_jamo = bool(
+    if not (
         COMPATIBILITY_JAMO_RE.search(text)
         or HANGUL_JAMO_RE.search(text)
-    )
-
-    if not has_jamo:
+    ):
         return False
 
-    # 모음이 있어야 '분리된 음절'로 볼 수 있다.
-    # 단순 채팅 표현(ㅋㅋㅋ, ㅎㅎ 등)의 오탐을 조금 줄이기 위한 조건이다.
-    return bool(JAMO_VOWEL_RE.search(text))
+    # 단순 감정 표현 'ㅜㅜ', 'ㅡㅡ', 장식용 'ㅣ' 등은 초성+중성
+    # 조합이 없으므로 후보에서 제외한다.
+    return bool(
+        COMPAT_SYLLABLE_START_RE.search(text)
+        or MODERN_SYLLABLE_START_RE.search(text)
+    )
 
 
 def _compose_compatibility_jamo(text: str) -> str:
@@ -104,7 +108,6 @@ def normalize_jamo(text: str) -> str:
 
     composed = _compose_compatibility_jamo(text)
 
-    # 현대 자모(이벤트 등)와 전각 문자 등은 Unicode 정규화로 마무리한다.
     return unicodedata.normalize(
         "NFC",
         unicodedata.normalize("NFKC", composed),
@@ -130,7 +133,7 @@ def detect_jamo_candidates(page_result):
                 "technique": "JAMO",
                 "normalized_text": normalized_text,
                 "reason": [
-                    "한글 음절 대신 분리된 자모와 모음이 함께 사용됨"
+                    "한글 음절을 우회하기 위한 초성·중성 분리 조합이 사용됨"
                 ],
             }
         )
