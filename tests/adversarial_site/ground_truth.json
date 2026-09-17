@@ -1,0 +1,23 @@
+{
+  "entry": "index.html",
+  "expected_min_pages": 22,
+  "positives": [
+    {"id":"A01","page":"post.html?id=5","technique":"TRANSPARENT","evidence_text":"QZXV\u200b NRMK 47","expected_status":"SUSPICIOUS"},
+    {"id":"A02","page":"post.html?id=9","technique":"OFFSCREEN","evidence_text":"VXQ\u200b NODE 81","expected_status":"SUSPICIOUS"},
+    {"id":"A03","page":"post.html?id=12","technique":"JAMO","evidence_text":"ㅋㅏㅍㅏ ㄴㅗㄷㅡ ㅅㅔㅂㅔㄴ","expected_status":"SUSPICIOUS"},
+    {"id":"A04","page":"post.html?id=14","technique":"HOMOGLYPH","evidence_text":"QZХV NRMK","expected_status":"SUSPICIOUS"},
+    {"id":"A05","page":"post.html?id=15","technique":"TRANSPARENT","evidence_text":"ALPHA\u200b VECTOR 29","expected_status":"SUSPICIOUS"},
+    {"id":"A06","page":"post.html?id=15","technique":"OFFSCREEN","evidence_text":"ALPHA\u200b VECTOR 29","expected_status":"SUSPICIOUS"},
+    {"id":"A07","page":"post.html?id=17","technique":"HOMOGLYPH","evidence_text":"NОDЕ GRID 73","expected_status":"SUSPICIOUS"},
+    {"id":"A08","page":"post.html?id=17","technique":"JAMO","evidence_text":"ㄷㅔㄹㅌㅏ ㅂㅔㄱㅌㅓ","expected_status":"SUSPICIOUS"}
+  ],
+  "benign_controls": [
+    {"id":"AC01","page":"post.html?id=1","technique":"OFFSCREEN","evidence_text":"본문 바로가기"},
+    {"id":"AC02","page":"post.html?id=1","technique":"OFFSCREEN","evidence_text":"키보드 탐색 도움말"},
+    {"id":"AC03","page":"post.html?id=6","technique":"OFFSCREEN","evidence_text":"모바일 메뉴"},
+    {"id":"AC04","page":"post.html?id=1","technique":"TRANSPARENT","evidence_text":"로딩 상태 안내"},
+    {"id":"AC05","page":"post.html?id=4","technique":"OFFSCREEN","evidence_text":"문서 버전 2026.09"},
+    {"id":"AC06","page":"post.html?id=8","technique":"HOMOGLYPH","evidence_text":"ＶＥＲＳＩＯＮ ２"},
+    {"id":"AC07","page":"post.html?id=10","technique":"JAMO","evidence_text":"ㅁㅔㄴㅠ ㅇㅏㄴㄴㅐ"}
+  ]
+}
