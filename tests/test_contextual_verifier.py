@@ -181,22 +181,35 @@ class ContextualVerifierTests(unittest.TestCase):
         self.assertEqual(rejected[0]["verification_status"], "BENIGN_LIKELY")
         self.assertFalse(rejected[0]["is_violation"])
 
-    def test_local_sample_marker_still_passes_regression_fixture(self):
+    def test_localhost_sample_text_does_not_bypass_verifier(self):
+        url = "http://127.0.0.1:8000/test.html"
+        selector = "body > p"
         candidate = {
-            "url": "http://127.0.0.1:8000/test.html",
-            "location": "body > p",
+            "url": url,
+            "location": selector,
             "evidence_text": "SAMPLE TEST",
-            "technique": "JAMO",
-            "reason": ["회귀 테스트"],
+            "technique": "TRANSPARENT",
+            "reason": ["opacity가 0인 요소 또는 부모 요소에 의해 숨겨짐"],
+            "opacity_source": selector,
             "scan_pass": "desktop-initial",
         }
+        pages = [
+            {
+                "url": url,
+                "title": "Local fixture",
+                "elements": [
+                    {"selector": selector, "text": "SAMPLE TEST"},
+                    {"selector": "body > h1", "text": "Local fixture"},
+                ],
+            }
+        ]
 
-        verified, rejected = verify_candidates([[candidate]], pages=[])
+        verified, rejected = verify_candidates([[candidate]], pages=pages)
 
-        self.assertEqual(len(verified), 1)
-        self.assertEqual(len(rejected), 0)
-        self.assertEqual(verified[0]["verification_score"], 1.0)
-        self.assertEqual(verified[0]["verification_status"], "CONFIRMED")
+        self.assertEqual(len(verified), 0)
+        self.assertEqual(len(rejected), 1)
+        self.assertEqual(rejected[0]["verification_status"], "BENIGN_LIKELY")
+        self.assertLess(rejected[0]["verification_score"], 1.0)
 
 
 if __name__ == "__main__":
