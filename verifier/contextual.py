@@ -1,7 +1,6 @@
 import re
 import unicodedata
 from collections import defaultdict
-from urllib.parse import urlsplit
 
 from verifier.multilingual_semantic import multilingual_semantic_score
 from verifier.open_set import open_set_anomaly_score
@@ -29,20 +28,6 @@ def _candidate_text(candidate):
         or candidate.get("evidence_text")
         or ""
     )
-
-
-def _is_local_test_candidate(candidate):
-    url = candidate.get("url", "")
-    parsed = urlsplit(url)
-    host = (parsed.hostname or "").lower()
-    text = _normalize_text(_candidate_text(candidate))
-
-    is_local = (
-        parsed.scheme == "file"
-        or host in {"localhost", "127.0.0.1", "::1"}
-    )
-
-    return is_local and ("sample" in text or "test" in text)
 
 
 def _dedupe_candidates(candidates):
@@ -306,7 +291,8 @@ def verify_candidates(candidate_groups, pages=None):
       의미 모델이 처음 보는 문구라도 사이트 내부 희귀성, 은닉 강도,
       다중 기법, 렌더링 상태 선택성, Unicode 이상도를 결합해 탐지한다.
 
-    semantic_score가 낮다는 이유만으로 정상 판정하지 않는 것이 핵심이다.
+    localhost/file 입력도 실제 verifier를 그대로 통과한다. 테스트 표식 때문에
+    강제 정답 처리하지 않아야 모의 사이트가 의미/open-set 회귀검사 역할을 한다.
     """
 
     raw_candidates = [
@@ -331,20 +317,6 @@ def verify_candidates(candidate_groups, pages=None):
     for candidate in candidates:
         item = dict(candidate)
 
-        if _is_local_test_candidate(candidate):
-            item["verification_status"] = "CONFIRMED"
-            item["verification_score"] = 1.0
-            item["semantic_score"] = 1.0
-            item["legacy_semantic_score"] = 1.0
-            item["multilingual_score"] = 1.0
-            item["semantic_agreement"] = 1.0
-            item["open_set_score"] = 1.0
-            item["structure_score"] = _technique_strength(candidate)
-            item["verification_reason"] = "로컬 회귀 테스트 표식이 확인됨"
-            item["is_violation"] = True
-            verified.append(item)
-            continue
-
         context = _context_text(
             candidate,
             page_titles,
@@ -359,8 +331,6 @@ def verify_candidates(candidate_groups, pages=None):
         )
         multilingual_context, _ = multilingual_semantic_score(context)
 
-        # 두 의미 모델을 먼저 독립적으로 합산한다. 이전처럼 각 단계에서 max를
-        # 사용하면 한 branch의 오판이 전체 semantic score를 그대로 끌어올릴 수 있다.
         legacy_branch_score = (
             0.58 * legacy_evidence
             + 0.42 * legacy_context
@@ -429,8 +399,6 @@ def verify_candidates(candidate_groups, pages=None):
         max_branch = max(legacy_branch_score, multilingual_branch_score)
         min_branch = min(legacy_branch_score, multilingual_branch_score)
 
-        # 두 branch가 최소한 어느 정도 동의하거나, 한 branch가 매우 강하게
-        # 확신하는 경우에만 known CONFIRMED를 허용한다.
         semantic_consensus = (
             (min_branch >= 0.54 and max_branch >= 0.64)
             or max_branch >= 0.82
@@ -442,10 +410,6 @@ def verify_candidates(candidate_groups, pages=None):
             and semantic_consensus
         )
 
-        # 신유형은 의미 점수와 무관하게 구조/희귀성이 충분히 강하면 살린다.
-        # CSS 기반 단일 기법은 정상 접근성/UI 구현에서도 흔하므로 더 높은
-        # open-set 문턱을 사용하고, JAMO/HOMOGLYPH는 구조 자체가 더 특이해
-        # 상대적으로 낮은 문턱을 유지한다.
         if technique in {"JAMO", "HOMOGLYPH"}:
             open_suspicious = (
                 open_score >= 0.60
