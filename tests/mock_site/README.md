@@ -13,17 +13,16 @@
 - 정상 `display:none` UI와 정상 below-the-fold 콘텐츠(오탐 회귀 테스트)
 - `HTML5` 같은 정상 숫자 포함 문자열(오탐 회귀 테스트)
 
-모든 문구와 링크는 안전한 테스트용이며 실제 도박/불법 서비스로 연결되지 않습니다.
+모든 문구와 링크는 로컬 테스트용 합성 데이터이며 실제 서비스로 연결되지 않습니다.
 
-## 실행
+## 기본 mock_site 실행
 ARGUS 프로젝트 루트에서:
 
 ```powershell
-cd tests\mock_site
-python -m http.server 8000
+python -m http.server 8000 --directory tests\mock_site
 ```
 
-새 터미널에서 프로젝트 루트로 돌아간 뒤:
+새 터미널에서:
 
 ```powershell
 python main.py
@@ -32,5 +31,28 @@ python main.py
 검사 URL:
 
 ```text
-http://localhost:8000/
+http://127.0.0.1:8000/
 ```
+
+## Verifier benchmark
+`benchmark/`는 기존 detector fixture와 분리된 end-to-end 평가 세트입니다.
+
+- positive 20건: TRANSPARENT / OFFSCREEN / JAMO / HOMOGLYPH / iframe
+- benign control 8건
+- `ground_truth.json`에 정답을 고정
+- 실제 외부 사이트 접속 없이 임시 localhost 서버를 자동 생성
+- Detector recall, Verifier precision/recall/F1, 기법별 결과를 자동 계산
+
+프로젝트 루트에서 한 줄로 실행:
+
+```powershell
+python tests\run_mock_benchmark.py
+```
+
+현재 기준을 완전히 통과해야 exit code 0으로 강제하고 싶다면:
+
+```powershell
+python tests\run_mock_benchmark.py --strict
+```
+
+처음 튜닝할 때는 `--strict` 없이 실행해서 누락된 case와 예상하지 않은 최종 유지 후보를 먼저 확인하는 것을 권장합니다.
