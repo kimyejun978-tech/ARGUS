@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>ARGUS Hidden Benchmark</title>
+  <style>
+    body{font-family:Arial,sans-serif;background:#ffffff;color:#202633;padding:30px}
+    .box{padding:18px;border:1px solid #d7dce6;margin:14px 0;border-radius:10px}
+    .opacity-zero{opacity:0}
+    .transparent{color:transparent}
+    .same-color{color:#fff;background:#fff}
+    .far-left{position:absolute;left:-9999px;top:180px}
+    .far-top{position:absolute;top:-9999px;left:20px}
+    .tiny{font-size:1px}
+    .display-none{display:none}
+  </style>
+</head>
+<body>
+  <h1>Hidden verifier cases</h1>
+  <div class="box">
+    <p class="opacity-zero">TEST ONLY 불법 광고 회원 모집 가입 혜택 안내</p>
+    <p class="transparent">TEST ONLY 신규 회원 보너스 지급 홍보</p>
+    <p class="same-color">TEST ONLY 우회 광고 가입 유도 문구</p>
+    <p class="far-left">TEST ONLY 사설 서비스 신규 가입 혜택 안내</p>
+    <p class="tiny">TEST ONLY hidden promotion join now claim bonus</p>
+    <p class="far-top">TEST ONLY unauthorized gambling advertisement sign up now</p>
+  </div>
+
+  <div class="box">
+    <h2>정상 UI 오탐 방지 대조군</h2>
+    <p class="opacity-zero">로딩 애니메이션 접근성 설명</p>
+    <p class="transparent">테마 미리보기 텍스트</p>
+    <p class="display-none">모바일 메뉴 설정</p>
+    <p class="far-left">본문 바로가기</p>
+  </div>
+
+  <p><a href="index.html">benchmark index</a></p>
+</body>
+</html>
