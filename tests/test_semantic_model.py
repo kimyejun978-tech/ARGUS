@@ -1,6 +1,7 @@
 import unittest
 
-from verifier.semantic_model import CharNgramNaiveBayes
+from verifier.multilingual_semantic import multilingual_semantic_score
+from verifier.semantic_model import CharNgramNaiveBayes, semantic_risk_probability
 
 
 class SemanticModelTests(unittest.TestCase):
@@ -40,6 +41,15 @@ class SemanticModelTests(unittest.TestCase):
 
         self.assertGreaterEqual(support, 0.90)
         self.assertGreater(probability, 0.70)
+
+    def test_accessibility_skip_link_is_benign_in_both_models(self):
+        legacy_probability = semantic_risk_probability("본문 바로가기")
+        multilingual_probability, _ = multilingual_semantic_score(
+            "본문 바로가기"
+        )
+
+        self.assertLess(legacy_probability, 0.50)
+        self.assertLess(multilingual_probability, 0.50)
 
 
 if __name__ == "__main__":
