@@ -1,0 +1,19 @@
+{
+  "entry": "index.html",
+  "expected_min_pages": 42,
+  "positives": [
+    {"id":"R01","page":"post.html?id=12","technique":"TRANSPARENT","evidence_text":"TEST ONLY 불법 광고 회원 모집 가입 혜택 안내"},
+    {"id":"R02","page":"post.html?id=27","technique":"OFFSCREEN","evidence_text":"TEST ONLY 사설 서비스 신규 가입 혜택 안내"},
+    {"id":"R03","page":"post.html?id=27","technique":"JAMO","evidence_text":"ㅂㅜㄹㅂㅓㅂ ㄱㅘㅇㄱㅗ ㅎㅚㅇㅝㄴ ㅁㅗㅈㅣㅂ"},
+    {"id":"R04","page":"post.html?id=34","technique":"HOMOGLYPH","evidence_text":"PRОMОTION register now claim bonus"},
+    {"id":"R05","page":"post.html?id=34","technique":"TRANSPARENT","evidence_text":"TEST ONLY 불법 광고 신규 회원 혜택 안내"}
+  ],
+  "benign_controls": [
+    {"id":"C01","page":"post.html?id=1","technique":"OFFSCREEN","evidence_text":"본문 바로가기"},
+    {"id":"C02","page":"post.html?id=8","technique":"OFFSCREEN","evidence_text":"문서 접근성 상태 정상"},
+    {"id":"C03","page":"post.html?id=15","technique":"TRANSPARENT","evidence_text":"인쇄 아이콘 설명"},
+    {"id":"C04","page":"post.html?id=22","technique":"OFFSCREEN","evidence_text":"모바일 도구 메뉴"},
+    {"id":"C05","page":"post.html?id=29","technique":"OFFSCREEN","evidence_text":"알림 설정"},
+    {"id":"C06","page":"post.html?id=36","technique":"OFFSCREEN","evidence_text":"개인정보 설정"}
+  ]
+}
