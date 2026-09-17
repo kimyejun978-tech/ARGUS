@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>한빛시 공개 게시물</title>
+  <style>
+    body{font-family:Arial,sans-serif;margin:0;color:#1f2937;background:#f5f7fb}header{background:#15345b;color:white;padding:18px 28px}.wrap{max-width:940px;margin:auto;padding:28px}.paper{background:white;border:1px solid #dce2ea;border-radius:10px;padding:28px}.meta{color:#64748b}.skip{position:absolute;left:-9999px;top:0}.skip:focus{left:16px;top:10px;background:white;color:#111;padding:8px;z-index:50}.modal{display:none}.mobile-menu{display:none}.loading{opacity:0;transition:opacity .2s}.tiny-meta{font-size:1px}.icon-label{color:transparent}.risk-transparent{opacity:0}.risk-offscreen{position:absolute;left:-9999px;top:220px}.risk-same{color:#fff;background:#fff}
+    @media(max-width:640px){.desktop-tools{display:none}.mobile-menu{display:block}}
+  </style>
+</head>
+<body>
+<a id="skip-link" class="skip" href="#main">본문 바로가기</a>
+<header><strong>한빛시 시민정보포털</strong></header>
+<main id="main" class="wrap">
+  <article id="post" class="paper">
+    <h1 id="post-title">게시물 불러오는 중</h1>
+    <p class="meta" id="post-meta">공개 게시물</p>
+    <div id="post-content">
+      <p>시민 여러분께 관련 일정을 안내드립니다.</p>
+      <p>세부 내용은 담당 부서의 공지 기준을 확인해 주세요.</p>
+      <p>이 페이지는 ARGUS의 정상 웹사이트 회귀검사를 위한 로컬 모의 콘텐츠입니다.</p>
+    </div>
+    <section id="comments"><h2>댓글</h2><p>안내 감사합니다.</p><p>운영시간 확인했습니다.</p></section>
+    <p id="loading-message" class="loading">첨부정보 확인 중</p>
+    <p class="tiny-meta">문서 접근성 상태 정상</p>
+    <span class="icon-label">인쇄 아이콘 설명</span>
+    <div class="desktop-tools"><button type="button">인쇄</button><button type="button">공유</button></div>
+    <div class="mobile-menu"><p>모바일 도구 메뉴</p><p>공유</p><p>목록</p></div>
+    <div class="modal"><p>알림 설정</p><p>개인정보 설정</p><button type="button">닫기</button></div>
+  </article>
+  <p><a href="board.html">목록으로</a></p>
+</main>
+<script>
+const params=new URLSearchParams(location.search);const id=Number(params.get('id')||0);
+const title=document.getElementById('post-title');const meta=document.getElementById('post-meta');const content=document.getElementById('post-content');
+title.textContent=`한빛시 공개 게시물 ${id}`;meta.textContent=`게시번호 ${id} · 공개 · 시민정보과`;
+const normal=document.createElement('p');normal.textContent=`게시물 ${id} 관련 안내사항입니다. 문의사항은 시민정보과로 접수해 주세요.`;content.appendChild(normal);
+setTimeout(()=>{document.getElementById('loading-message').style.opacity='1'},120);
+
+if(id===12){
+  const p=document.createElement('p');p.id='risk-transparent-12';p.className='risk-transparent';p.textContent='TEST ONLY 불법 광고 회원 모집 가입 혜택 안내';content.appendChild(p);
+}
+
+if(id===27){
+  setTimeout(()=>{
+    const off=document.createElement('p');off.id='risk-offscreen-27';off.className='risk-offscreen';off.textContent='TEST ONLY 사설 서비스 신규 가입 혜택 안내';content.appendChild(off);
+    const jamo=document.createElement('p');jamo.id='risk-jamo-27';jamo.textContent='ㅂㅜㄹㅂㅓㅂ ㄱㅘㅇㄱㅗ ㅎㅚㅇㅝㄴ ㅁㅗㅈㅣㅂ';content.appendChild(jamo);
+  },220);
+}
+
+if(id===34){
+  const homo=document.createElement('p');homo.id='risk-homoglyph-34';homo.textContent='PRОMОTION register now claim bonus';content.appendChild(homo);
+  const frame=document.createElement('iframe');frame.id='notice-widget-34';frame.title='공지 위젯';frame.src='widget.html?case=34';frame.style.width='100%';frame.style.height='120px';frame.style.border='0';content.appendChild(frame);
+}
+</script>
+</body>
+</html>
