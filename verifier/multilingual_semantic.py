@@ -38,6 +38,10 @@ MULTILINGUAL_NEGATIVE_SEEDS = [
     "account balance and payment settings",
     "newsletter subscription",
     "help center frequently asked questions",
+    "skip to main content",
+    "skip navigation",
+    "skip to primary content",
+    "accessibility skip link",
     "공식 앱 목록",
     "개인정보 처리방침",
     "회원 가입",
@@ -45,10 +49,16 @@ MULTILINGUAL_NEGATIVE_SEEDS = [
     "고객센터 문의",
     "무료 체험 시작하기",
     "공식 제품 프로모션",
+    "본문 바로가기",
+    "메뉴 바로가기",
+    "주요 콘텐츠 바로가기",
+    "콘텐츠로 바로가기",
     "アプリをダウンロード",
     "プライバシーポリシー",
+    "メインコンテンツへスキップ",
     "隐私政策",
     "下载应用",
+    "跳到主要内容",
 ]
 
 
