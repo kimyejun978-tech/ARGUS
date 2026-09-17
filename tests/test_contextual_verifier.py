@@ -149,6 +149,38 @@ class ContextualVerifierTests(unittest.TestCase):
         self.assertEqual(verified[0]["verification_status"], "SUSPICIOUS")
         self.assertGreaterEqual(verified[0]["open_set_score"], 0.56)
 
+    def test_normal_navigation_text_is_not_confirmed_by_one_semantic_branch(self):
+        url = "https://example.com/place/1"
+        candidate = {
+            "url": url,
+            "location": "div#app > div > a:nth-of-type(1)",
+            "evidence_text": "본문 바로가기",
+            "technique": "OFFSCREEN",
+            "reason": ["요소가 비정상적으로 먼 화면 밖 좌표에 배치됨"],
+            "rect": {"x": 0, "y": -5000, "width": 108, "height": 31},
+            "scan_pass": "desktop-scrolled",
+        }
+        pages = [
+            {
+                "url": url,
+                "title": "장소 정보",
+                "elements": [
+                    {
+                        "selector": candidate["location"],
+                        "text": candidate["evidence_text"],
+                    },
+                    {"selector": "div#app > main > h1", "text": "장소 정보"},
+                ],
+            }
+        ]
+
+        verified, rejected = verify_candidates([[candidate]], pages=pages)
+
+        self.assertEqual(len(verified), 0)
+        self.assertEqual(len(rejected), 1)
+        self.assertEqual(rejected[0]["verification_status"], "BENIGN_LIKELY")
+        self.assertFalse(rejected[0]["is_violation"])
+
     def test_local_sample_marker_still_passes_regression_fixture(self):
         candidate = {
             "url": "http://127.0.0.1:8000/test.html",
