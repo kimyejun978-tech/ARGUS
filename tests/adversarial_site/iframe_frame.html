@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <style>body{font-family:Arial,sans-serif;background:#fafbfc;color:#344054;padding:14px;margin:0}.box{border:1px solid #e1e5ea;padding:12px}</style>
+</head>
+<body>
+  <div class="box">
+    <strong>첨부 자료 미리보기</strong>
+    <p>일반 문서 미리보기 영역입니다.</p>
+    <div id="late"></div>
+  </div>
+<script>
+  setTimeout(() => {
+    document.getElementById('late').innerHTML = `
+      <p>NОDЕ GRID 73</p>
+      <p>ㄷㅔㄹㅌㅏ ㅂㅔㄱㅌㅓ</p>
+    `;
+  }, 220);
+</script>
+</body>
+</html>
