@@ -363,13 +363,29 @@ async def run(seed, per_technique, max_seconds):
                 avg = div(sum(row["scores"]), len(row["scores"])) if row["scores"] else 0.0
                 print(f"  {name:<42} {row['e']:>2} / {row['d']:>2} / {row['v']:>2} open_avg={avg:.3f}")
 
-            misses = [record for key,record in positives.items() if key not in verified_map]
-            if misses:
-                print("\n[Verifier 누락 상위 20건]")
-                for record in misses[:20]:
+            detector_misses = [record for key,record in positives.items() if key not in detector_keys]
+            verifier_only_misses = [
+                record for key,record in positives.items()
+                if key in detector_keys and key not in verified_map
+            ]
+            if detector_misses:
+                print("\n[Detector 누락 상위 20건]")
+                for record in detector_misses[:20]:
                     print(" -", record["id"], record["technique"], record["family"], record["page"], "|", record["evidence_text"])
 
-            weakest = sorted((verified_map[k].get("open_set_score",0.0), positives[k], verified_map[k]) for k in verifier_hits)
+            if verifier_only_misses:
+                print("\n[Detector는 잡았지만 Verifier가 제외한 상위 20건]")
+                for record in verifier_only_misses[:20]:
+                    print(" -", record["id"], record["technique"], record["family"], record["page"], "|", record["evidence_text"])
+
+            weakest = sorted(
+                (
+                    verified_map[k].get("open_set_score",0.0),
+                    positives[k],
+                    verified_map[k],
+                )
+                for k in verifier_hits
+            , key=lambda item: item[0])
             if weakest:
                 print("\n[유지된 정답 중 open-set 점수 하위 10건]")
                 for score,record,candidate in weakest[:10]:
