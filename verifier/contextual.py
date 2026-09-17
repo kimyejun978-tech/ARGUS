@@ -298,7 +298,9 @@ def verify_candidates(candidate_groups, pages=None):
     Contextual Verifier v3.
 
     Known branch:
-      기존 문자 n-gram + 다국어 의미 모델 + 구조/문맥 결합
+      기존 문자 n-gram과 다국어 의미 모델을 독립적으로 계산한 뒤
+      두 branch의 합의 정도까지 확인한다. 한 모델만 과신한 정상 UI 문구가
+      바로 CONFIRMED가 되는 것을 막는다.
 
     Open-set branch:
       의미 모델이 처음 보는 문구라도 사이트 내부 희귀성, 은닉 강도,
@@ -333,7 +335,9 @@ def verify_candidates(candidate_groups, pages=None):
             item["verification_status"] = "CONFIRMED"
             item["verification_score"] = 1.0
             item["semantic_score"] = 1.0
+            item["legacy_semantic_score"] = 1.0
             item["multilingual_score"] = 1.0
+            item["semantic_agreement"] = 1.0
             item["open_set_score"] = 1.0
             item["structure_score"] = _technique_strength(candidate)
             item["verification_reason"] = "로컬 회귀 테스트 표식이 확인됨"
@@ -355,12 +359,23 @@ def verify_candidates(candidate_groups, pages=None):
         )
         multilingual_context, _ = multilingual_semantic_score(context)
 
-        evidence_semantic = max(legacy_evidence, multilingual_evidence)
-        context_semantic = max(legacy_context, multilingual_context)
-
+        # 두 의미 모델을 먼저 독립적으로 합산한다. 이전처럼 각 단계에서 max를
+        # 사용하면 한 branch의 오판이 전체 semantic score를 그대로 끌어올릴 수 있다.
+        legacy_branch_score = (
+            0.58 * legacy_evidence
+            + 0.42 * legacy_context
+        )
+        multilingual_branch_score = (
+            0.58 * multilingual_evidence
+            + 0.42 * multilingual_context
+        )
         semantic_score = (
-            0.58 * evidence_semantic
-            + 0.42 * context_semantic
+            0.50 * legacy_branch_score
+            + 0.50 * multilingual_branch_score
+        )
+        semantic_agreement = max(
+            0.0,
+            1.0 - abs(legacy_branch_score - multilingual_branch_score),
         )
 
         structure_score = _technique_strength(candidate)
@@ -403,35 +418,53 @@ def verify_candidates(candidate_groups, pages=None):
         )
 
         technique = candidate.get("technique")
-        semantic_floor = (
-            0.50
-            if technique in {"JAMO", "HOMOGLYPH"}
-            else 0.56
+
+        if technique in {"JAMO", "HOMOGLYPH"}:
+            semantic_floor = 0.56
+            known_floor = 0.60
+        else:
+            semantic_floor = 0.60
+            known_floor = 0.60
+
+        max_branch = max(legacy_branch_score, multilingual_branch_score)
+        min_branch = min(legacy_branch_score, multilingual_branch_score)
+
+        # 두 branch가 최소한 어느 정도 동의하거나, 한 branch가 매우 강하게
+        # 확신하는 경우에만 known CONFIRMED를 허용한다.
+        semantic_consensus = (
+            (min_branch >= 0.54 and max_branch >= 0.64)
+            or max_branch >= 0.82
         )
 
         known_confirmed = (
             semantic_score >= semantic_floor
-            and known_score >= 0.58
+            and known_score >= known_floor
+            and semantic_consensus
         )
 
         # 신유형은 의미 점수와 무관하게 구조/희귀성이 충분히 강하면 살린다.
-        open_suspicious = (
-            (
+        # CSS 기반 단일 기법은 정상 접근성/UI 구현에서도 흔하므로 더 높은
+        # open-set 문턱을 사용하고, JAMO/HOMOGLYPH는 구조 자체가 더 특이해
+        # 상대적으로 낮은 문턱을 유지한다.
+        if technique in {"JAMO", "HOMOGLYPH"}:
+            open_suspicious = (
                 open_score >= 0.60
-                and structure_score >= 0.56
                 and repeat_count <= 2
             )
-            or (
-                open_score >= 0.54
-                and repetition["multi_technique_count"] >= 2
-                and repeat_count <= 3
+        else:
+            open_suspicious = (
+                (
+                    open_score >= 0.66
+                    and structure_score >= 0.60
+                    and repeat_count <= 2
+                )
+                or (
+                    open_score >= 0.64
+                    and repetition["multi_technique_count"] >= 2
+                    and structure_score >= 0.60
+                    and repeat_count <= 3
+                )
             )
-            or (
-                open_score >= 0.56
-                and technique in {"JAMO", "HOMOGLYPH"}
-                and repeat_count <= 2
-            )
-        )
 
         if known_confirmed:
             status = "CONFIRMED"
@@ -446,10 +479,9 @@ def verify_candidates(candidate_groups, pages=None):
         verification_score = max(known_score, open_score)
 
         item["semantic_score"] = round(semantic_score, 3)
-        item["multilingual_score"] = round(
-            max(multilingual_evidence, multilingual_context),
-            3,
-        )
+        item["legacy_semantic_score"] = round(legacy_branch_score, 3)
+        item["multilingual_score"] = round(multilingual_branch_score, 3)
+        item["semantic_agreement"] = round(semantic_agreement, 3)
         item["semantic_backend"] = semantic_backend
         item["structure_score"] = round(structure_score, 3)
         item["known_score"] = round(known_score, 3)
@@ -463,6 +495,9 @@ def verify_candidates(candidate_groups, pages=None):
 
         reason_parts = [
             f"known 의미 {semantic_score:.2f}",
+            f"legacy {legacy_branch_score:.2f}",
+            f"다국어 {multilingual_branch_score:.2f}",
+            f"의미 합의 {semantic_agreement:.2f}",
             f"구조 강도 {structure_score:.2f}",
             f"known 결합 {known_score:.2f}",
             f"open-set {open_score:.2f}",
