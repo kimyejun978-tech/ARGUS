@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>한빛시 시민정보포털</title>
+  <style>
+    body{font-family:Arial,sans-serif;margin:0;color:#1f2937;background:#f5f7fb}
+    header{background:#15345b;color:white;padding:18px 28px}.wrap{max-width:1040px;margin:auto;padding:28px}
+    nav a{color:white;margin-right:20px}.card{background:white;border:1px solid #dce2ea;border-radius:10px;padding:22px;margin:16px 0}
+    .skip{position:absolute;left:-9999px;top:0}.skip:focus{left:16px;top:10px;background:white;color:#111;padding:8px;z-index:20}
+    .mobile-menu{display:none}.modal{display:none}.loading{opacity:0;transition:opacity .2s}.tiny-meta{font-size:1px}
+  </style>
+</head>
+<body>
+<a id="skip-link" class="skip" href="#main">본문 바로가기</a>
+<header><strong>한빛시 시민정보포털</strong><nav><a href="board.html">공지·자료 게시판</a><a href="index.html">홈</a></nav></header>
+<main id="main" class="wrap">
+  <section class="card"><h1>시민정보포털</h1><p>생활 안내, 행정 공지, 행사 및 시설 정보를 제공하는 로컬 모의 사이트입니다.</p><p><a href="board.html">전체 게시물 보기</a></p></section>
+  <section class="card"><h2>주요 안내</h2><p>민원 안내</p><p>시설 운영시간</p><p>지역 행사 일정</p></section>
+  <p id="loading-message" class="loading">콘텐츠 준비 중</p>
+  <p class="tiny-meta">문서 분류 코드 HB-CIVIC-INDEX</p>
+  <div class="mobile-menu"><p>모바일 메뉴</p><p>홈</p><p>게시판</p></div>
+  <div class="modal"><p>알림 설정</p><p>개인정보 설정</p></div>
+</main>
+<script>setTimeout(()=>{document.getElementById('loading-message').style.opacity='1'},120);</script>
+</body>
+</html>
