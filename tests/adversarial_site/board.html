@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>공지사항 목록</title>
+  <style>
+    body{font-family:Arial,sans-serif;background:#f7f8fb;color:#222;margin:0}
+    header{padding:18px 28px;background:#17324d;color:white}
+    main{max-width:980px;margin:auto;padding:28px}
+    table{width:100%;border-collapse:collapse;background:white}
+    th,td{padding:12px;border-bottom:1px solid #e3e7ec;text-align:left}
+    a{color:#165a92;text-decoration:none}
+  </style>
+</head>
+<body>
+<header><strong>공지사항</strong></header>
+<main>
+  <p><a href="index.html">포털 홈</a></p>
+  <table>
+    <thead><tr><th>번호</th><th>제목</th><th>구분</th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+</main>
+<script>
+  const titles = [
+    '청사 이용 안내','시설 점검 일정','교육 프로그램 안내','전자민원 이용법','도서관 운영시간',
+    '모바일 서비스 안내','주차장 정비 일정','문서 공개 안내','안전 점검 공지','주민 참여 일정',
+    '정보화 교육 모집','홈페이지 개선 안내','시설 대관 안내','개인정보 보호 안내','인쇄 서비스 안내',
+    '정기 점검 결과','외부 위젯 점검','통계 자료 공개','시민 설문 안내','민원 처리 기준'
+  ];
+  const rows = document.getElementById('rows');
+  titles.forEach((title, index) => {
+    const id = index + 1;
+    rows.insertAdjacentHTML('beforeend', `<tr><td>${id}</td><td><a href="post.html?id=${id}">${title}</a></td><td>공지</td></tr>`);
+  });
+</script>
+</body>
+</html>
