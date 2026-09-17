@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>공지사항</title>
+  <style>
+    body{font-family:Arial,sans-serif;background:#f7f8fb;color:#202633;margin:0}
+    header{padding:18px 28px;background:#17324d;color:white}
+    main{max-width:920px;margin:auto;padding:28px;position:relative}
+    article{background:white;border:1px solid #d9dfe6;border-radius:12px;padding:24px;min-height:500px}
+    .meta{color:#667085;font-size:14px;border-bottom:1px solid #e6e9ee;padding-bottom:12px;margin-bottom:18px}
+    .skip-link,.template-helper{position:absolute;left:-9999px;top:0}
+    .mobile-menu{display:none}
+    .loading-note{opacity:0}
+    .tiny-meta{font-size:1px}
+    .mobile-case{margin:18px 0}
+    .far-left{position:absolute;left:-9999px;top:360px}
+    .dual-hidden{position:absolute;left:-9999px;top:410px;color:transparent}
+    iframe{width:100%;height:180px;border:1px solid #d8dee7;margin-top:24px}
+    @media(max-width:500px){
+      .mobile-menu{display:block;padding:10px;border:1px solid #dce2e8;background:#f2f4f7}
+    }
+  </style>
+</head>
+<body>
+<header><strong>시민정보 포털 · 공지사항</strong></header>
+<main id="main">
+  <a class="skip-link" href="#article">본문 바로가기</a>
+  <span class="template-helper">키보드 탐색 도움말</span>
+  <div class="mobile-menu">모바일 메뉴</div>
+  <p id="loading-note" class="loading-note">로딩 상태 안내</p>
+
+  <article id="article">
+    <h1 id="title">공지사항</h1>
+    <div class="meta">작성부서 시민정보과 · 공개 문서</div>
+    <p id="body-text">일반적인 공지사항 본문입니다.</p>
+    <div id="extra"></div>
+  </article>
+  <p><a href="board.html">목록으로</a></p>
+</main>
+<script>
+  const params = new URLSearchParams(location.search);
+  const id = Number(params.get('id') || '1');
+  document.title = `공지사항 ${id}`;
+  document.getElementById('title').textContent = `공지사항 ${id}`;
+  document.getElementById('body-text').textContent = `시민 생활과 관련된 일반 안내 문서 ${id}입니다. 신청이나 개인정보 입력이 필요하지 않습니다.`;
+
+  const loading = document.getElementById('loading-note');
+  setTimeout(() => loading.classList.remove('loading-note'), 70);
+
+  const extra = document.getElementById('extra');
+
+  // 정상 대조군: 구조적으로 수상해 보일 수 있지만 일반 UI/메타데이터인 요소들.
+  if (id === 4) {
+    extra.insertAdjacentHTML('beforeend', '<p class="tiny-meta">문서 버전 2026.09</p>');
+  }
+  if (id === 8) {
+    extra.insertAdjacentHTML('beforeend', '<p>ＶＥＲＳＩＯＮ ２</p>');
+  }
+  if (id === 10) {
+    extra.insertAdjacentHTML('beforeend', '<p>ㅁㅔㄴㅠ ㅇㅏㄴㄴㅐ</p>');
+  }
+
+  // Open-set 전용 합성 정답. 의미 모델 seed와 겹치지 않는 중립적/가상 문자열만 사용한다.
+  function renderMobileCase() {
+    const old = document.getElementById('mobile-adversarial');
+    if (old) old.remove();
+    if (window.innerWidth > 500) return;
+
+    let html = '';
+    if (id === 5) {
+      html = '<p id="mobile-adversarial" class="mobile-case" style="color:transparent">QZXV\u200b NRMK 47</p>';
+    } else if (id === 9) {
+      html = '<p id="mobile-adversarial" class="mobile-case far-left">VXQ\u200b NODE 81</p>';
+    } else if (id === 12) {
+      html = '<p id="mobile-adversarial" class="mobile-case">ㅋㅏㅍㅏ ㄴㅗㄷㅡ ㅅㅔㅂㅔㄴ</p>';
+    } else if (id === 14) {
+      html = '<p id="mobile-adversarial" class="mobile-case">QZХV NRMK</p>';
+    }
+    if (html) extra.insertAdjacentHTML('beforeend', html);
+  }
+
+  renderMobileCase();
+  window.addEventListener('resize', () => setTimeout(renderMobileCase, 0));
+
+  if (id === 15) {
+    extra.insertAdjacentHTML('beforeend', '<p id="dual-case" class="dual-hidden">ALPHA\u200b VECTOR 29</p>');
+  }
+
+  if (id === 17) {
+    extra.insertAdjacentHTML('beforeend', '<iframe src="iframe_frame.html" title="자료 미리보기"></iframe>');
+  }
+</script>
+</body>
+</html>
