@@ -286,7 +286,7 @@ def main():
     parser.add_argument(
         "--strict",
         action="store_true",
-        help="범위/precision/recall/open-set status가 모두 100%가 아니면 exit code 1",
+        help="범위/precision/recall/open-set status가 모두 100%%가 아니면 exit code 1",
     )
     args = parser.parse_args()
 
