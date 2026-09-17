@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "entry": "benchmark/index.html",
+  "positives": [
+    {"id":"P01","page":"benchmark/hidden.html","technique":"TRANSPARENT","evidence_text":"TEST ONLY 불법 광고 회원 모집 가입 혜택 안내"},
+    {"id":"P02","page":"benchmark/hidden.html","technique":"TRANSPARENT","evidence_text":"TEST ONLY 신규 회원 보너스 지급 홍보"},
+    {"id":"P03","page":"benchmark/hidden.html","technique":"TRANSPARENT","evidence_text":"TEST ONLY 우회 광고 가입 유도 문구"},
+    {"id":"P04","page":"benchmark/hidden.html","technique":"OFFSCREEN","evidence_text":"TEST ONLY 사설 서비스 신규 가입 혜택 안내"},
+    {"id":"P05","page":"benchmark/hidden.html","technique":"OFFSCREEN","evidence_text":"TEST ONLY hidden promotion join now claim bonus"},
+    {"id":"P06","page":"benchmark/hidden.html","technique":"OFFSCREEN","evidence_text":"TEST ONLY unauthorized gambling advertisement sign up now"},
+
+    {"id":"P07","page":"benchmark/jamo.html","technique":"JAMO","evidence_text":"ㅂㅜㄹㅂㅓㅂ ㄱㅘㅇㄱㅗ ㅎㅚㅇㅝㄴ ㅁㅗㅈㅣㅂ"},
+    {"id":"P08","page":"benchmark/jamo.html","technique":"JAMO","evidence_text":"ㅅㅣㄴㄱㅠ ㅎㅚㅇㅝㄴ ㅎㅖㅌㅐㄱ ㅇㅏㄴㄴㅐ"},
+    {"id":"P09","page":"benchmark/jamo.html","technique":"JAMO","evidence_text":"ㄱㅏㅇㅣㅂ ㅋㅗㄷㅡ ㅁㅜㄴㅇㅢ ㅇㅣㅂㅔㄴㅌㅡ"},
+    {"id":"P10","page":"benchmark/jamo.html","technique":"JAMO","evidence_text":"ㅇㅜㅎㅚ ㅈㅜㅅㅗ ㅈㅓㅂㅅㅗㄱ ㅇㅏㄴㄴㅐ"},
+    {"id":"P11","page":"benchmark/jamo.html","technique":"JAMO","evidence_text":"ㅅㅏㅅㅓㄹ ㅅㅓㅂㅣㅅㅡ ㄱㅏㅇㅣㅂ ㅎㅖㅌㅐㄱ"},
+
+    {"id":"P12","page":"benchmark/homoglyph.html","technique":"HOMOGLYPH","evidence_text":"PRОMОTION register now claim bonus"},
+    {"id":"P13","page":"benchmark/homoglyph.html","technique":"HOMOGLYPH","evidence_text":"ＮＥＷ ＭＥＭＢＥＲ ＢＯＮＵＳ TEST ONLY"},
+    {"id":"P14","page":"benchmark/homoglyph.html","technique":"HOMOGLYPH","evidence_text":"RЕGISTER NOW hidden promotion"},
+    {"id":"P15","page":"benchmark/homoglyph.html","technique":"HOMOGLYPH","evidence_text":"B0NUS TEST ONLY new member promotion"},
+    {"id":"P16","page":"benchmark/homoglyph.html","technique":"HOMOGLYPH","evidence_text":"ＳＩＧＮ ＵＰ TEST ONLY promotion reward"},
+
+    {"id":"P17","page":"benchmark/iframe_host.html","technique":"TRANSPARENT","evidence_text":"TEST ONLY 불법 광고 신규 회원 혜택 안내"},
+    {"id":"P18","page":"benchmark/iframe_host.html","technique":"OFFSCREEN","evidence_text":"TEST ONLY private promotion register now claim bonus"},
+    {"id":"P19","page":"benchmark/iframe_host.html","technique":"JAMO","evidence_text":"ㅂㅜㄹㅂㅓㅂ ㄱㅘㅇㄱㅗ ㅇㅣㅂㅔㄴㅌㅡ ㅇㅏㄴㄴㅐ"},
+    {"id":"P20","page":"benchmark/iframe_host.html","technique":"HOMOGLYPH","evidence_text":"PRОMОTION TEST ONLY member bonus"}
+  ],
+  "benign_controls": [
+    {"id":"N01","page":"benchmark/hidden.html","technique":"TRANSPARENT","evidence_text":"로딩 애니메이션 접근성 설명","expected_detector_candidate":true},
+    {"id":"N02","page":"benchmark/hidden.html","technique":"TRANSPARENT","evidence_text":"테마 미리보기 텍스트","expected_detector_candidate":true},
+    {"id":"N03","page":"benchmark/hidden.html","technique":"OFFSCREEN","evidence_text":"모바일 메뉴 설정","expected_detector_candidate":true},
+    {"id":"N04","page":"benchmark/hidden.html","technique":"OFFSCREEN","evidence_text":"본문 바로가기","expected_detector_candidate":true},
+    {"id":"N05","page":"benchmark/jamo.html","technique":"JAMO","evidence_text":"ㅋㅋㅋ ㅠㅠ NORMAL CHAT","expected_detector_candidate":false},
+    {"id":"N06","page":"benchmark/jamo.html","technique":"JAMO","evidence_text":"ㄱㄱ ㅂㅂ 같은 짧은 채팅 표현","expected_detector_candidate":false},
+    {"id":"N07","page":"benchmark/homoglyph.html","technique":"HOMOGLYPH","evidence_text":"HTML5 VERSION 2","expected_detector_candidate":false},
+    {"id":"N08","page":"benchmark/homoglyph.html","technique":"HOMOGLYPH","evidence_text":"MODEL X200 USER GUIDE","expected_detector_candidate":false}
+  ]
+}
