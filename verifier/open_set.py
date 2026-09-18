@@ -116,17 +116,25 @@ def _ui_context_penalty(candidate):
 def _pass_selectivity(candidate):
     passes = candidate.get("scan_passes") or []
     count = len(set(passes))
+    technique = candidate.get("technique")
 
     if count == 0:
         return 0.0, []
+
     if count == 1:
+        # CSS 은닉은 로딩/탭/캐러셀 전환 중 한 패스에서만 잠깐 관측되는
+        # 정상 UI가 매우 많다. 반면 JAMO/HOMOGLYPH는 렌더링 상태 자체보다
+        # 텍스트 변조가 핵심 증거이므로 기존 희귀 상태 가산점을 유지한다.
+        if technique in {"TRANSPARENT", "OFFSCREEN"}:
+            return -0.04, ["CSS 은닉이 1개 렌더링 상태에서만 관측되어 일시 상태 가능성"]
         return 0.10, ["특정 1개 렌더링 상태에서만 관측"]
+
     if count == 2:
         return 0.06, ["일부 렌더링 상태에서만 관측"]
+
     if count >= 5:
         # 여러 패스에서 안정적으로 반복되는 은닉은 일시적인 로딩/애니메이션보다
-        # 의도된 구조일 가능성이 높다. 이전에는 이를 감점해 stable JAMO/HOMOGLYPH
-        # open-set 후보를 임계값 바로 아래로 밀어내는 문제가 있었다.
+        # 의도된 구조일 가능성이 높다.
         return 0.03, ["모든 렌더링 상태에서 안정적으로 반복 관측"]
 
     return 0.0, []
