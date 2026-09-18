@@ -183,8 +183,11 @@ async def run(url, max_pages, max_seconds, workers, discovery_workers):
                 "passes=" + str(len(candidate.get("scan_passes") or [])),
                 "legacy_sup=" + str(candidate.get("legacy_semantic_support")),
                 "multi_sup=" + str(candidate.get("multilingual_support")),
+                "visible_eq=" + str(candidate.get("visible_equivalent_count")),
                 "multi=" + str(candidate.get("multi_technique_count")),
                 "independent=" + str(candidate.get("independent_technique_count")),
+                "| selector=" + str(candidate.get("location", ""))[:180],
+                "| reasons=" + "; ".join(candidate.get("reason", [])),
             )
 
     return {
