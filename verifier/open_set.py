@@ -124,7 +124,10 @@ def _pass_selectivity(candidate):
     if count == 2:
         return 0.06, ["일부 렌더링 상태에서만 관측"]
     if count >= 5:
-        return -0.03, ["모든 렌더링 상태에서 반복 관측"]
+        # 여러 패스에서 안정적으로 반복되는 은닉은 일시적인 로딩/애니메이션보다
+        # 의도된 구조일 가능성이 높다. 이전에는 이를 감점해 stable JAMO/HOMOGLYPH
+        # open-set 후보를 임계값 바로 아래로 밀어내는 문제가 있었다.
+        return 0.03, ["모든 렌더링 상태에서 안정적으로 반복 관측"]
 
     return 0.0, []
 
