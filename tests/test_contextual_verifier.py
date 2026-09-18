@@ -241,6 +241,88 @@ class ContextualVerifierTests(unittest.TestCase):
         self.assertGreaterEqual(verified[0]["structure_score"], 0.60)
         self.assertGreaterEqual(verified[0]["open_set_score"], 0.66)
 
+    def test_one_pass_css_hiding_is_treated_as_transient(self):
+        urls = [f"https://example.com/page-{index}" for index in range(8)]
+        target_url = urls[0]
+        selector = "main > section > p.transient"
+        candidate = {
+            "url": target_url,
+            "location": selector,
+            "evidence_text": "ordinary transient panel text",
+            "technique": "TRANSPARENT",
+            "reason": ["opacity가 0인 요소 또는 부모 요소에 의해 숨겨짐"],
+            "opacity_source": selector,
+            "scan_pass": "desktop-initial",
+        }
+        pages = [
+            {
+                "url": url,
+                "title": "Page",
+                "elements": (
+                    [{"selector": selector, "text": candidate["evidence_text"]}]
+                    if url == target_url
+                    else [{"selector": "main > p", "text": "ordinary content"}]
+                ),
+            }
+            for url in urls
+        ]
+
+        verified, rejected = verify_candidates([[candidate]], pages=pages)
+
+        self.assertEqual(len(verified), 0)
+        self.assertEqual(len(rejected), 1)
+        self.assertEqual(rejected[0]["verification_status"], "BENIGN_LIKELY")
+        self.assertLess(rejected[0]["open_set_score"], 0.66)
+
+    def test_css_only_overlap_is_not_independent_multi_technique_evidence(self):
+        urls = [f"https://example.com/page-{index}" for index in range(8)]
+        target_url = urls[0]
+        selector = "main > section > p.hidden"
+        text = "ordinary hidden panel"
+        transparent = {
+            "url": target_url,
+            "location": selector,
+            "evidence_text": text,
+            "technique": "TRANSPARENT",
+            "reason": ["텍스트 색상과 배경 색상이 동일함"],
+            "scan_pass": "desktop-initial",
+        }
+        offscreen = {
+            "url": target_url,
+            "location": selector,
+            "evidence_text": text,
+            "technique": "OFFSCREEN",
+            "reason": ["display:none으로 요소가 숨겨짐"],
+            "display_source": selector,
+            "scan_pass": "desktop-initial",
+        }
+        pages = [
+            {
+                "url": url,
+                "title": "Page",
+                "elements": (
+                    [{"selector": selector, "text": text}]
+                    if url == target_url
+                    else [{"selector": "main > p", "text": "ordinary content"}]
+                ),
+            }
+            for url in urls
+        ]
+
+        verified, rejected = verify_candidates(
+            [[transparent], [offscreen]],
+            pages=pages,
+        )
+
+        self.assertEqual(len(verified), 0)
+        self.assertEqual(len(rejected), 2)
+        self.assertTrue(
+            all(item["multi_technique_count"] == 2 for item in rejected)
+        )
+        self.assertTrue(
+            all(item["independent_technique_count"] == 1 for item in rejected)
+        )
+
     def test_normal_navigation_text_is_not_confirmed_by_one_semantic_branch(self):
         url = "https://example.com/place/1"
         candidate = {
