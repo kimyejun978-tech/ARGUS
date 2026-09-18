@@ -1,6 +1,6 @@
 import unittest
 
-from tests.run_scale_benchmark import _candidate_key, _record_key
+from run_scale_benchmark import _candidate_key, _record_key
 
 
 class ScaleBenchmarkKeyTests(unittest.TestCase):
