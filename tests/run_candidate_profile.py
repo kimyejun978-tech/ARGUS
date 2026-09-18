@@ -121,6 +121,11 @@ async def run(url, max_pages, max_seconds, workers, discovery_workers):
         candidate.get("verification_status", "UNKNOWN")
         for candidate in [*verified, *rejected]
     )
+    verified_pass_counts = Counter(
+        f"{candidate.get('technique','UNKNOWN')} :: "
+        f"{len(set(candidate.get('scan_passes') or []))} pass"
+        for candidate in verified
+    )
 
     verified_by_technique = Counter(
         candidate.get("technique", "UNKNOWN")
@@ -160,6 +165,7 @@ async def run(url, max_pages, max_seconds, workers, discovery_workers):
     _print_counter("구조 후보 reason 상위", reason_counts)
     _print_counter("scan pass별 raw 관측", pass_counts)
     _print_counter("dedup 후보 pass 개수", pass_combo_counts)
+    _print_counter("최종 유지 후보 pass 개수", verified_pass_counts)
 
     if verified:
         print("\n[최종 유지 후보 상위 20건]")
@@ -175,6 +181,8 @@ async def run(url, max_pages, max_seconds, workers, discovery_workers):
                 "open=" + str(candidate.get("open_set_score")),
                 "known=" + str(candidate.get("known_score")),
                 "passes=" + str(len(candidate.get("scan_passes") or [])),
+                "multi=" + str(candidate.get("multi_technique_count")),
+                "independent=" + str(candidate.get("independent_technique_count")),
             )
 
     return {
