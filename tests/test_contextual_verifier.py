@@ -452,6 +452,85 @@ class ContextualVerifierTests(unittest.TestCase):
         self.assertEqual(rejected[0]["visible_equivalent_count"], 1)
         self.assertEqual(rejected[0]["verification_status"], "BENIGN_LIKELY")
 
+    def test_visible_equivalent_with_zero_width_obfuscation_stays_suspicious(self):
+        urls = [f"https://example.com/page-{index}" for index in range(8)]
+        target_url = urls[0]
+        selector = "main > section > p.mobile-hidden"
+        text = "ABCDE\u200b FGHI 101"
+        candidates = [
+            {
+                "url": target_url,
+                "location": selector,
+                "evidence_text": text,
+                "technique": "TRANSPARENT",
+                "reason": ["opacity가 0인 요소 또는 부모 요소에 의해 숨겨짐"],
+                "opacity_source": selector,
+                "scan_pass": pass_name,
+            }
+            for pass_name in ("mobile-settled", "mobile-scrolled")
+        ]
+        pages = [
+            {
+                "url": url,
+                "title": "Page",
+                "elements": (
+                    [
+                        {
+                            "selector": selector,
+                            "text": text,
+                            "style": {
+                                "visibility": "visible",
+                                "fontSize": "16px",
+                            },
+                            "effectiveOpacity": 0.0,
+                            "textColorAlpha": 1.0,
+                            "sameTextBackground": False,
+                            "displayNoneSource": None,
+                            "inViewport": False,
+                        },
+                        {
+                            "selector": "main > section > p.desktop-visible",
+                            "text": text,
+                            "style": {
+                                "visibility": "visible",
+                                "fontSize": "16px",
+                            },
+                            "effectiveOpacity": 1.0,
+                            "textColorAlpha": 1.0,
+                            "sameTextBackground": False,
+                            "displayNoneSource": None,
+                            "inViewport": True,
+                        },
+                    ]
+                    if url == target_url
+                    else [
+                        {
+                            "selector": "main > p",
+                            "text": "ordinary content",
+                            "style": {
+                                "visibility": "visible",
+                                "fontSize": "16px",
+                            },
+                            "effectiveOpacity": 1.0,
+                            "textColorAlpha": 1.0,
+                            "sameTextBackground": False,
+                            "displayNoneSource": None,
+                            "inViewport": True,
+                        }
+                    ]
+                ),
+            }
+            for url in urls
+        ]
+
+        verified, rejected = verify_candidates([candidates], pages=pages)
+
+        self.assertEqual(len(verified), 1)
+        self.assertEqual(len(rejected), 0)
+        self.assertTrue(verified[0]["visible_equivalent_present"])
+        self.assertTrue(verified[0]["strong_text_obfuscation"])
+        self.assertEqual(verified[0]["verification_status"], "SUSPICIOUS")
+
     def test_normal_navigation_text_is_not_confirmed_by_one_semantic_branch(self):
         url = "https://example.com/place/1"
         candidate = {
