@@ -37,6 +37,19 @@ SOURCE_PRIORITY = {
     "sitemap": 3,
 }
 
+TRANSIENT_BROWSER_ERROR_HINTS = (
+    "execution context was destroyed",
+    "interrupted by another navigation",
+    "net::err_aborted",
+    "frame was detached",
+    "navigation interrupted",
+)
+
+
+def _is_transient_browser_error(exc) -> bool:
+    message = str(exc).lower()
+    return any(hint in message for hint in TRANSIENT_BROWSER_ERROR_HINTS)
+
 
 def _canonicalize_pipeline_url(url: str) -> str:
     """기존 canonicalize + 명백한 일시성 challenge query 제거."""
@@ -141,6 +154,7 @@ async def crawl_site(
     discovery_robots_count = 0
     discovery_sitemap_count = 0
     discovery_error_count = 0
+    browser_retry_count = 0
 
     def time_remaining():
         if max_seconds is None:
@@ -424,6 +438,7 @@ async def crawl_site(
             nonlocal time_limit_reached
             nonlocal page_limit_reached
             nonlocal interrupted_count
+            nonlocal browser_retry_count
 
             while True:
                 if stop_event.is_set():
@@ -499,15 +514,63 @@ async def crawl_site(
                             timeout=timeout_ms,
                         )
                     except Exception as exc:
-                        async with state_lock:
-                            errors.append(
-                                {
-                                    "url": requested_url,
-                                    "error": str(exc),
-                                    "worker": worker_id,
-                                }
-                            )
-                        continue
+                        if _is_transient_browser_error(exc):
+                            browser_retry_count += 1
+                            try:
+                                # HTTP→HTTPS 전환, JS redirect, ERR_ABORTED처럼
+                                # 브라우저가 자체적으로 다른 navigation을 이어가는
+                                # 경우가 있다. 짧게 안정화를 기다린 뒤 같은 URL을
+                                # 한 번만 재시도해 실제 누락을 줄인다.
+                                try:
+                                    await page.wait_for_load_state(
+                                        "domcontentloaded",
+                                        timeout=min(5000, timeout_ms),
+                                    )
+                                except Exception:
+                                    pass
+
+                                remaining = time_remaining()
+                                retry_timeout_ms = timeout_ms
+                                if remaining is not None:
+                                    if remaining <= 0:
+                                        time_limit_reached = True
+                                        stop_event.set()
+                                        continue
+                                    retry_timeout_ms = int(
+                                        max(
+                                            1000,
+                                            min(15000, remaining * 1000),
+                                        )
+                                    )
+
+                                await page.goto(
+                                    requested_url,
+                                    wait_until="domcontentloaded",
+                                    timeout=retry_timeout_ms,
+                                )
+                            except Exception as retry_exc:
+                                async with state_lock:
+                                    errors.append(
+                                        {
+                                            "url": requested_url,
+                                            "error": (
+                                                f"navigation retry failed: "
+                                                f"{retry_exc}"
+                                            ),
+                                            "worker": worker_id,
+                                        }
+                                    )
+                                continue
+                        else:
+                            async with state_lock:
+                                errors.append(
+                                    {
+                                        "url": requested_url,
+                                        "error": str(exc),
+                                        "worker": worker_id,
+                                    }
+                                )
+                            continue
 
                     final_url = _canonicalize_pipeline_url(page.url)
                     final_parsed = urlsplit(final_url)
@@ -544,15 +607,79 @@ async def crawl_site(
                         interrupted_count += 1
                         raise
                     except Exception as exc:
-                        async with state_lock:
-                            errors.append(
-                                {
-                                    "url": final_url,
-                                    "error": f"multi-scan failed: {exc}",
-                                    "worker": worker_id,
-                                }
+                        if not _is_transient_browser_error(exc):
+                            async with state_lock:
+                                errors.append(
+                                    {
+                                        "url": final_url,
+                                        "error": f"multi-scan failed: {exc}",
+                                        "worker": worker_id,
+                                    }
+                                )
+                            continue
+
+                        browser_retry_count += 1
+
+                        # 로드 직후 meta/JS redirect가 발생하면 evaluate 도중
+                        # execution context가 교체될 수 있다. 새 navigation이
+                        # 안정된 뒤 최종 URL을 다시 예약하고 5-pass scan을
+                        # 한 번만 재시도한다.
+                        try:
+                            try:
+                                await page.wait_for_load_state(
+                                    "domcontentloaded",
+                                    timeout=5000,
+                                )
+                            except Exception:
+                                pass
+
+                            recovered_url = _canonicalize_pipeline_url(
+                                page.url
                             )
-                        continue
+
+                            if not _is_same_site(
+                                recovered_url,
+                                allowed_hosts,
+                                entry_scheme,
+                            ):
+                                raise RuntimeError(
+                                    "redirected outside allowed site"
+                                )
+
+                            if recovered_url != final_url:
+                                async with state_lock:
+                                    scanning_urls.discard(final_url)
+                                    reserved_final_url = None
+                                    known_page_urls.add(recovered_url)
+
+                                    if (
+                                        recovered_url in scanned_urls
+                                        or recovered_url in scanning_urls
+                                    ):
+                                        continue
+
+                                    scanning_urls.add(recovered_url)
+                                    reserved_final_url = recovered_url
+
+                                final_url = recovered_url
+
+                            page_result = await _scan_loaded_page_multi(page)
+                        except asyncio.CancelledError:
+                            interrupted_count += 1
+                            raise
+                        except Exception as retry_exc:
+                            async with state_lock:
+                                errors.append(
+                                    {
+                                        "url": final_url,
+                                        "error": (
+                                            "multi-scan retry failed: "
+                                            f"{retry_exc}"
+                                        ),
+                                        "worker": worker_id,
+                                    }
+                                )
+                            continue
 
                     page_result["url"] = final_url
                     links = page_result.pop("links", set())
@@ -730,6 +857,7 @@ async def crawl_site(
         "discovery_robots_count": discovery_robots_count,
         "discovery_sitemap_count": discovery_sitemap_count,
         "discovery_error_count": discovery_error_count,
+        "browser_retry_count": browser_retry_count,
         "limit_reached": (
             page_limit_reached or time_limit_reached
         ),
