@@ -143,6 +143,7 @@ async def run(url, max_pages, max_seconds, workers, discovery_workers):
     print("       ARGUS CANDIDATE PROFILE")
     print("===================================")
     print("URL                 :", url)
+    print("브라우저 worker      :", crawl.get("worker_count", workers))
     print("완료 페이지          :", crawl.get("page_count", len(pages)))
     print("frame 수            :", crawl.get("frame_count", 0))
     print("raw 관측 합          :", len(raw))
@@ -162,6 +163,7 @@ async def run(url, max_pages, max_seconds, workers, discovery_workers):
         f"pending={crawl.get('pending_count', 0)}",
         f"discovery_pending={crawl.get('discovery_pending_count', 0)}",
         f"errors={len(crawl.get('errors', []))}",
+        f"browser_retries={crawl.get('browser_retry_count', 0)}",
         f"page_limit={crawl.get('page_limit_reached', False)}",
         f"time_limit={crawl.get('time_limit_reached', False)}",
     )
