@@ -441,6 +441,24 @@ async def run(seed, per_technique, max_seconds):
             print("검증 유지 후보   :", len(verified))
             print("검증 제외 후보   :", len(rejected))
             print("크롤링+검사 시간 :", f"{elapsed:.3f}초")
+            print(
+                "크롤러 진단        :",
+                f"known={crawl.get('known_page_count', 0)}",
+                f"attempted={crawl.get('attempted_count', 0)}",
+                f"pending={crawl.get('pending_count', 0)}",
+                f"discovery_pending={crawl.get('discovery_pending_count', 0)}",
+                f"errors={len(crawl.get('errors', []))}",
+                f"limit={crawl.get('limit_reached', False)}",
+            )
+            if crawl.get("errors"):
+                print("[크롤러 오류 상위 5건]")
+                for error in crawl["errors"][:5]:
+                    print(
+                        " -",
+                        error.get("url", ""),
+                        "|",
+                        error.get("error", "")[:180],
+                    )
             print()
             print("Detector coverage :", pct(detector_recall), f"({len(detector_hits)}/{len(all_cases)})")
             print("Verifier precision:", pct(precision), f"({tp}/{tp+fp})" if tp+fp else "(0/0)")
