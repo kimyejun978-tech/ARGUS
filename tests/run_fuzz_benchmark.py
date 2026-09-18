@@ -119,6 +119,45 @@ def fullwidth(text):
     return "".join(chr(ord(c) + 0xFEE0) if 0x21 <= ord(c) <= 0x7E else c for c in text)
 
 
+def expectation_for(technique, family):
+    """
+    fuzz case를 두 층으로 나눈다.
+
+    retain:
+      의미 모델이 모르는 문자열이어도 구조적으로 충분히 강해 verifier가
+      SUSPICIOUS로 유지해야 하는 회귀 대상.
+
+    probe:
+      detector는 잡아야 하지만 실제 웹에서 정상 UI와 겹칠 수 있어
+      verifier 유지 여부를 강제하지 않는 경계 사례.
+    """
+    strong_families = {
+        "TRANSPARENT": {
+            "opacity-zero-zws",
+            "mobile-only-zws",
+        },
+        "OFFSCREEN": {
+            "far-left-zws",
+            "fixed-top-zws",
+        },
+        "JAMO": {
+            "compat-stable",
+            "compat-mobile-only",
+            "compat-delayed",
+            "modern-stable",
+            "compat-punctuation",
+        },
+        "HOMOGLYPH": {
+            "cyrillic-mixed",
+            "fullwidth-plain",
+            "digit-internal",
+            "greek-mixed",
+            "mobile-only-mixed",
+        },
+    }
+    return "retain" if family in strong_families[technique] else "probe"
+
+
 def make_case(rng, technique, index):
     family_index = index % 6
     case_id = f"F-{technique[:2]}-{index + 1:03d}"
@@ -211,7 +250,15 @@ def make_case(rng, technique, index):
         else:
             markup = f'<p id="{element_id}">{html.escape(text)}</p>'
 
-    return {"id":case_id,"technique":technique,"family":family,"evidence_text":text,"html":markup,"script":script}
+    return {
+        "id": case_id,
+        "technique": technique,
+        "family": family,
+        "expectation": expectation_for(technique, family),
+        "evidence_text": text,
+        "html": markup,
+        "script": script,
+    }
 
 
 def controls_for_page(page_index):
@@ -247,8 +294,12 @@ def build_site(root, seed, per_technique):
             if case["script"]:
                 scripts.append(case["script"])
             positives.append({
-                "id":case["id"],"page":filename,"technique":case["technique"],
-                "family":case["family"],"evidence_text":case["evidence_text"],
+                "id": case["id"],
+                "page": filename,
+                "technique": case["technique"],
+                "family": case["family"],
+                "expectation": case["expectation"],
+                "evidence_text": case["evidence_text"],
             })
         markup.extend(c["html"] for c in page_controls)
         document = f'''<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Fuzz {i+1}</title>
@@ -282,8 +333,16 @@ async def run(seed, per_technique, max_seconds):
             print("===================================")
             print("      ARGUS MUTATION FUZZ TEST")
             print("===================================")
+            retain_count = sum(
+                1 for record in truth["positives"]
+                if record.get("expectation") == "retain"
+            )
+            probe_count = len(truth["positives"]) - retain_count
+
             print("seed               :", seed)
-            print("positive           :", len(truth["positives"]))
+            print("generated cases    :", len(truth["positives"]))
+            print("required retain    :", retain_count)
+            print("ambiguous probes   :", probe_count)
             print("normal controls    :", len(truth["benign_controls"]))
             print("pages expected     :", truth["expected_min_pages"])
             print()
@@ -302,34 +361,75 @@ async def run(seed, per_technique, max_seconds):
             raw = [c for group in groups for c in group]
             verified, rejected = verify_candidates(groups, pages=crawl["pages"])
 
-            positives = {record_key(r):r for r in truth["positives"]}
-            controls = {record_key(r):r for r in truth["benign_controls"]}
+            all_cases = {record_key(r): r for r in truth["positives"]}
+            positives = {
+                key: record
+                for key, record in all_cases.items()
+                if record.get("expectation") == "retain"
+            }
+            probes = {
+                key: record
+                for key, record in all_cases.items()
+                if record.get("expectation") == "probe"
+            }
+            controls = {record_key(r): r for r in truth["benign_controls"]}
             detector_keys = {candidate_key(c) for c in raw}
-            verified_map = {candidate_key(c):c for c in verified}
-            detector_hits = {k for k in positives if k in detector_keys}
+            verified_map = {candidate_key(c): c for c in verified}
+            evaluated_map = {
+                candidate_key(c): c
+                for c in [*verified, *rejected]
+            }
+
+            detector_hits = {k for k in all_cases if k in detector_keys}
             verifier_hits = {k for k in positives if k in verified_map}
-            unexpected = [c for k,c in verified_map.items() if k not in positives]
+            probe_hits = {k for k in probes if k in verified_map}
+            unexpected = [
+                candidate
+                for key, candidate in verified_map.items()
+                if key not in all_cases
+            ]
             control_leaks = [controls[k] for k in controls if k in verified_map]
 
             tp = len(verifier_hits)
             fp = len(unexpected)
-            detector_recall = div(len(detector_hits), len(positives))
+            detector_recall = div(len(detector_hits), len(all_cases))
             precision = div(tp, tp + fp)
             recall = div(tp, len(positives))
             f1 = div(2 * precision * recall, precision + recall)
-            status_counts = Counter(verified_map[k].get("verification_status","UNKNOWN") for k in verifier_hits)
+            probe_retention = div(len(probe_hits), len(probes))
+            status_counts = Counter(
+                verified_map[k].get("verification_status", "UNKNOWN")
+                for k in verifier_hits
+            )
 
-            tech_stats = defaultdict(lambda:{"e":0,"d":0,"v":0})
-            family_stats = defaultdict(lambda:{"e":0,"d":0,"v":0,"scores":[]})
-            for key, record in positives.items():
+            tech_stats = defaultdict(lambda: {"e":0, "d":0, "v":0})
+            required_stats = defaultdict(lambda: {"e":0, "v":0})
+            family_stats = defaultdict(
+                lambda: {"e":0, "d":0, "v":0, "scores":[], "expectation":""}
+            )
+            for key, record in all_cases.items():
                 tr = tech_stats[record["technique"]]
                 fr = family_stats[f"{record['technique']}::{record['family']}"]
-                tr["e"] += 1; fr["e"] += 1
+                tr["e"] += 1
+                fr["e"] += 1
+                fr["expectation"] = record.get("expectation", "probe")
+
                 if key in detector_keys:
-                    tr["d"] += 1; fr["d"] += 1
+                    tr["d"] += 1
+                    fr["d"] += 1
                 if key in verified_map:
-                    tr["v"] += 1; fr["v"] += 1
-                    fr["scores"].append(verified_map[key].get("open_set_score",0.0))
+                    tr["v"] += 1
+                    fr["v"] += 1
+                if key in evaluated_map:
+                    fr["scores"].append(
+                        evaluated_map[key].get("open_set_score", 0.0)
+                    )
+
+                if record.get("expectation") == "retain":
+                    rr = required_stats[record["technique"]]
+                    rr["e"] += 1
+                    if key in verified_map:
+                        rr["v"] += 1
 
             page_count = crawl.get("page_count", len(crawl.get("pages",[])))
             print("==============================")
@@ -342,30 +442,45 @@ async def run(seed, per_technique, max_seconds):
             print("검증 제외 후보   :", len(rejected))
             print("크롤링+검사 시간 :", f"{elapsed:.3f}초")
             print()
-            print("Detector recall   :", pct(detector_recall), f"({len(detector_hits)}/{len(positives)})")
+            print("Detector coverage :", pct(detector_recall), f"({len(detector_hits)}/{len(all_cases)})")
             print("Verifier precision:", pct(precision), f"({tp}/{tp+fp})" if tp+fp else "(0/0)")
-            print("Verifier recall   :", pct(recall), f"({tp}/{len(positives)})")
-            print("Verifier F1       :", pct(f1))
+            print("Required recall   :", pct(recall), f"({tp}/{len(positives)})")
+            print("Required F1       :", pct(f1))
+            print("Probe retention   :", pct(probe_retention), f"({len(probe_hits)}/{len(probes)})")
             print("CONFIRMED         :", status_counts.get("CONFIRMED",0))
             print("SUSPICIOUS        :", status_counts.get("SUSPICIOUS",0))
             print("Unexpected FP     :", fp)
             print("Control leakage   :", len(control_leaks), "/", len(controls))
             print()
 
-            print("기법별 정답 / detector / verifier")
+            print("기법별 전체 case / detector / verifier")
             for technique in TECHNIQUES:
                 row = tech_stats[technique]
                 print(f"  {technique:<11} {row['e']:>3} / {row['d']:>3} / {row['v']:>3}")
+
+            print("\n기법별 required retain / verifier")
+            for technique in TECHNIQUES:
+                row = required_stats[technique]
+                print(f"  {technique:<11} {row['e']:>3} / {row['v']:>3}")
 
             print("\n[변이 family별 결과]")
             for name in sorted(family_stats):
                 row = family_stats[name]
                 avg = div(sum(row["scores"]), len(row["scores"])) if row["scores"] else 0.0
-                print(f"  {name:<42} {row['e']:>2} / {row['d']:>2} / {row['v']:>2} open_avg={avg:.3f}")
+                label = row["expectation"]
+                print(
+                    f"  {name:<42} {row['e']:>2} / {row['d']:>2} / {row['v']:>2} "
+                    f"open_avg={avg:.3f} [{label}]"
+                )
 
-            detector_misses = [record for key,record in positives.items() if key not in detector_keys]
+            detector_misses = [
+                record
+                for key, record in all_cases.items()
+                if key not in detector_keys
+            ]
             verifier_only_misses = [
-                record for key,record in positives.items()
+                record
+                for key, record in positives.items()
                 if key in detector_keys and key not in verified_map
             ]
             if detector_misses:
@@ -399,7 +514,16 @@ async def run(seed, per_technique, max_seconds):
                 for candidate in unexpected[:20]:
                     print(" -", candidate.get("verification_status"), candidate.get("technique"), normalized_page(candidate.get("url","")), "|", candidate.get("evidence_text",""))
 
-            return {"page_count":page_count,"min_pages":truth["expected_min_pages"],"detector_recall":detector_recall,"precision":precision,"recall":recall,"f1":f1,"control_leakage":len(control_leaks)}
+            return {
+                "page_count": page_count,
+                "min_pages": truth["expected_min_pages"],
+                "detector_recall": detector_recall,
+                "precision": precision,
+                "recall": recall,
+                "f1": f1,
+                "probe_retention": probe_retention,
+                "control_leakage": len(control_leaks),
+            }
         finally:
             server.shutdown(); server.server_close(); thread.join(timeout=2)
 
@@ -419,7 +543,7 @@ def main():
         result["page_count"] < result["min_pages"]
         or result["detector_recall"] < 1.0
         or result["precision"] < 0.98
-        or result["recall"] < 0.90
+        or result["recall"] < 1.0
         or result["control_leakage"] > 0
     ):
         raise SystemExit(1)
