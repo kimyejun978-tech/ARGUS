@@ -160,6 +160,7 @@ async def crawl_site(
     discovery_error_count = 0
     browser_retry_count = 0
     browser_download_skip_count = 0
+    forced_cleanup = False
 
     def time_remaining():
         if max_seconds is None:
@@ -824,31 +825,89 @@ async def crawl_site(
                     time_limit_reached = True
                     stop_event.set()
                 else:
-                    await asyncio.wait_for(
-                        asyncio.gather(*all_tasks),
+                    # asyncio.wait_for(gather(...))는 timeout 시 child task의
+                    # cancellation 완료까지 기다리므로 Playwright evaluate가
+                    # renderer에서 막혀 있으면 watchdog을 수십 분 초과할 수 있다.
+                    # asyncio.wait는 deadline에 즉시 제어권을 돌려준다.
+                    _, pending = await asyncio.wait(
+                        all_tasks,
                         timeout=remaining,
                     )
 
-        except TimeoutError:
-            time_limit_reached = True
-            stop_event.set()
+                    if pending:
+                        time_limit_reached = True
+                        stop_event.set()
 
         finally:
-            if stop_event.is_set():
-                for task in all_tasks:
-                    if not task.done():
-                        task.cancel()
+            unfinished = [
+                task
+                for task in all_tasks
+                if not task.done()
+            ]
 
-            await asyncio.gather(
-                *all_tasks,
-                return_exceptions=True,
-            )
+            for task in unfinished:
+                task.cancel()
 
-            await context.close()
-            await browser.close()
+            # 정상적인 cancellation에는 짧은 유예를 준다.
+            if unfinished:
+                _, still_pending = await asyncio.wait(
+                    unfinished,
+                    timeout=3.0,
+                )
+            else:
+                still_pending = set()
+
+            if still_pending:
+                # renderer가 긴 JS/microtask에 묶여 cancellation을 소비하지 못하면
+                # 브라우저 자체를 닫아 in-flight Playwright 명령을 끊는다.
+                forced_cleanup = True
+                close_task = asyncio.create_task(
+                    browser.close(),
+                    name="argus-forced-browser-close",
+                )
+                await asyncio.wait({close_task}, timeout=5.0)
+
+                if not close_task.done():
+                    close_task.cancel()
+
+                await asyncio.wait(
+                    still_pending,
+                    timeout=2.0,
+                )
+
+            # 완료된 task 예외를 회수해 경고를 남기지 않는다.
+            done_tasks = [
+                task
+                for task in all_tasks
+                if task.done()
+            ]
+            if done_tasks:
+                await asyncio.gather(
+                    *done_tasks,
+                    return_exceptions=True,
+                )
+
+            if browser.is_connected():
+                try:
+                    await context.close()
+                except Exception:
+                    pass
+
+                try:
+                    await browser.close()
+                except Exception:
+                    pass
 
     pending_count = browser_queue.qsize() + interrupted_count
     discovery_pending_count = discovery_queue.qsize()
+    elapsed_total = time.perf_counter() - start_timer
+    watchdog_overrun_seconds = 0.0
+
+    if max_seconds is not None and time_limit_reached:
+        watchdog_overrun_seconds = max(
+            0.0,
+            elapsed_total - max_seconds,
+        )
 
     return {
         "entry_url": canonical_entry,
@@ -888,6 +947,8 @@ async def crawl_site(
         "discovery_error_count": discovery_error_count,
         "browser_retry_count": browser_retry_count,
         "browser_download_skip_count": browser_download_skip_count,
+        "forced_cleanup": forced_cleanup,
+        "watchdog_overrun_seconds": watchdog_overrun_seconds,
         "limit_reached": (
             page_limit_reached or time_limit_reached
         ),
