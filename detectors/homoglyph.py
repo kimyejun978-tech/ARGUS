@@ -31,6 +31,23 @@ INTERNAL_DIGIT_RE = re.compile(r"(?<=[A-Za-z])[0134578](?=[A-Za-z])")
 URL_RE = re.compile(r"(?:https?://|www\.)\S+", re.IGNORECASE)
 LONG_MACHINE_TOKEN_RE = re.compile(r"\b[A-Za-z0-9_-]{16,}\b")
 
+SOURCE_SAMPLE_MARKERS = (
+    "<!--",
+    "-->",
+    "</",
+    "<script",
+    "function ",
+    "var ",
+    "let ",
+    "const ",
+    "document.",
+    "getelementbyid",
+    "=>",
+    "{",
+    "}",
+    ";",
+)
+
 
 def _contains_mixed_script_token(text: str) -> bool:
     for token in SCRIPT_TOKEN_RE.findall(text):
@@ -41,6 +58,35 @@ def _contains_mixed_script_token(text: str) -> bool:
             return True
 
     return False
+
+
+def _looks_like_source_sample(text: str) -> bool:
+    """
+    길게 표시된 HTML/JavaScript 예제 소스는 식별자 내부 숫자가 흔하다.
+    예: item1Code, api2List. 이런 텍스트의 숫자를 HOMOGLYPH로 해석하면
+    정상 개발자 문서/예제 페이지에서 오탐이 커진다.
+
+    이 억제는 'digit-internal' 규칙에만 적용한다. 전각 문자나 실제
+    Latin+키릴/그리스 혼합은 소스 예제 안에서도 별도로 계속 탐지한다.
+    """
+
+    text = text or ""
+    if len(text) < 120:
+        return False
+
+    lowered = text.lower()
+    marker_hits = sum(
+        1
+        for marker in SOURCE_SAMPLE_MARKERS
+        if marker in lowered
+    )
+
+    # HTML comment로 시작하는 긴 코드 예제는 marker가 적더라도 소스 블록일
+    # 가능성이 높다. 일반 장문은 여러 코드 문법 표지가 함께 있어야 억제한다.
+    return (
+        ("<!--" in lowered and marker_hits >= 2)
+        or marker_hits >= 3
+    )
 
 
 def _digit_obfuscation_text(text: str) -> str:
@@ -101,7 +147,10 @@ def analyze_homoglyph(text: str):
     normalized = unicodedata.normalize("NFKC", text)
     digit_target = _digit_obfuscation_text(normalized)
 
-    if INTERNAL_DIGIT_RE.search(digit_target):
+    if (
+        INTERNAL_DIGIT_RE.search(digit_target)
+        and not _looks_like_source_sample(text)
+    ):
         reasons.append("단어 내부 숫자가 유사한 알파벳 문자 대신 사용됨")
 
     return reasons
