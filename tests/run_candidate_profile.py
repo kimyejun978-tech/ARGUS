@@ -341,6 +341,8 @@ async def run(url, max_pages, max_seconds, workers, discovery_workers):
         f"discovery_pending={crawl.get('discovery_pending_count', 0)}",
         f"errors={len(crawl.get('errors', []))}",
         f"browser_retries={crawl.get('browser_retry_count', 0)}",
+        f"timeout_retries={crawl.get('browser_timeout_retry_count', 0)}",
+        f"partial_recovery={crawl.get('browser_partial_recovery_count', 0)}",
         f"downloads={crawl.get('browser_download_skip_count', 0)}",
         f"forced_cleanup={crawl.get('forced_cleanup', False)}",
         f"watchdog_overrun={crawl.get('watchdog_overrun_seconds', 0.0):.3f}s",
