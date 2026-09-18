@@ -380,12 +380,15 @@ async def run(seed, per_technique, max_seconds):
 
             weakest = sorted(
                 (
-                    verified_map[k].get("open_set_score",0.0),
-                    positives[k],
-                    verified_map[k],
-                )
-                for k in verifier_hits
-            , key=lambda item: item[0])
+                    (
+                        verified_map[k].get("open_set_score",0.0),
+                        positives[k],
+                        verified_map[k],
+                    )
+                    for k in verifier_hits
+                ),
+                key=lambda item: item[0],
+            )
             if weakest:
                 print("\n[유지된 정답 중 open-set 점수 하위 10건]")
                 for score,record,candidate in weakest[:10]:
