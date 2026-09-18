@@ -149,6 +149,96 @@ class ContextualVerifierTests(unittest.TestCase):
         self.assertEqual(verified[0]["verification_status"], "SUSPICIOUS")
         self.assertGreaterEqual(verified[0]["open_set_score"], 0.56)
 
+    def test_stable_unknown_homoglyph_survives_open_set(self):
+        urls = [f"https://example.com/page-{index}" for index in range(6)]
+        target_url = urls[0]
+        selector = "main > article > p.stable-hidden"
+        passes = [
+            "desktop-initial",
+            "desktop-settled",
+            "desktop-scrolled",
+            "mobile-settled",
+            "mobile-scrolled",
+        ]
+        candidates = [
+            {
+                "url": target_url,
+                "location": selector,
+                "evidence_text": "QОLOWE WJOGZ",
+                "technique": "HOMOGLYPH",
+                "normalized_text": "QOLOWE WJOGZ",
+                "reason": [
+                    "한 단어 안에 라틴 문자와 유사한 키릴/그리스 문자가 혼합됨"
+                ],
+                "scan_pass": pass_name,
+            }
+            for pass_name in passes
+        ]
+        pages = [
+            {
+                "url": url,
+                "title": "Page",
+                "elements": (
+                    [{"selector": selector, "text": "QОLOWE WJOGZ"}]
+                    if url == target_url
+                    else [{"selector": "main > p", "text": "ordinary content"}]
+                ),
+            }
+            for url in urls
+        ]
+
+        verified, rejected = verify_candidates([candidates], pages=pages)
+
+        self.assertEqual(len(verified), 1)
+        self.assertEqual(len(rejected), 0)
+        self.assertEqual(verified[0]["verification_status"], "SUSPICIOUS")
+        self.assertEqual(len(verified[0]["scan_passes"]), 5)
+        self.assertGreaterEqual(verified[0]["open_set_score"], 0.60)
+
+    def test_opacity_zero_with_zero_width_can_survive_open_set(self):
+        urls = [f"https://example.com/page-{index}" for index in range(6)]
+        target_url = urls[0]
+        selector = "main > article > p.opacity-hidden"
+        passes = [
+            "desktop-initial",
+            "desktop-settled",
+            "desktop-scrolled",
+            "mobile-settled",
+            "mobile-scrolled",
+        ]
+        candidates = [
+            {
+                "url": target_url,
+                "location": selector,
+                "evidence_text": "MYOFB\u200b DQOJ 100",
+                "technique": "TRANSPARENT",
+                "reason": ["opacity가 0인 요소 또는 부모 요소에 의해 숨겨짐"],
+                "opacity_source": selector,
+                "scan_pass": pass_name,
+            }
+            for pass_name in passes
+        ]
+        pages = [
+            {
+                "url": url,
+                "title": "Page",
+                "elements": (
+                    [{"selector": selector, "text": "MYOFB\u200b DQOJ 100"}]
+                    if url == target_url
+                    else [{"selector": "main > p", "text": "ordinary content"}]
+                ),
+            }
+            for url in urls
+        ]
+
+        verified, rejected = verify_candidates([candidates], pages=pages)
+
+        self.assertEqual(len(verified), 1)
+        self.assertEqual(len(rejected), 0)
+        self.assertEqual(verified[0]["verification_status"], "SUSPICIOUS")
+        self.assertGreaterEqual(verified[0]["structure_score"], 0.60)
+        self.assertGreaterEqual(verified[0]["open_set_score"], 0.66)
+
     def test_normal_navigation_text_is_not_confirmed_by_one_semantic_branch(self):
         url = "https://example.com/place/1"
         candidate = {
