@@ -517,12 +517,20 @@ async def run(seed, per_technique, max_seconds):
             return {
                 "page_count": page_count,
                 "min_pages": truth["expected_min_pages"],
+                "generated_cases": len(all_cases),
+                "required_total": len(positives),
+                "required_hits": tp,
+                "probe_total": len(probes),
+                "probe_hits": len(probe_hits),
+                "control_total": len(controls),
+                "unexpected_fp": fp,
                 "detector_recall": detector_recall,
                 "precision": precision,
                 "recall": recall,
                 "f1": f1,
                 "probe_retention": probe_retention,
                 "control_leakage": len(control_leaks),
+                "elapsed": elapsed,
             }
         finally:
             server.shutdown(); server.server_close(); thread.join(timeout=2)
