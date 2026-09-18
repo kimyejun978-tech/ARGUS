@@ -592,18 +592,29 @@ async def _auto_scroll(page, max_steps=24, delay_ms=45):
 
 
 async def _capture_pass(page, pass_name):
+    pass_started = time.perf_counter()
+
+    dom_started = time.perf_counter()
     elements, frame_count = await _scan_frame(page.main_frame)
+    dom_elapsed = time.perf_counter() - dom_started
 
     for element in elements:
         element["scan_pass"] = pass_name
 
+    links_started = time.perf_counter()
     links = await _collect_links(page)
+    links_elapsed = time.perf_counter() - links_started
 
     return {
         "name": pass_name,
         "elements": elements,
         "frame_count": frame_count,
         "links": links,
+        "timing": {
+            "total": time.perf_counter() - pass_started,
+            "dom_scan": dom_elapsed,
+            "link_collect": links_elapsed,
+        },
     }
 
 
@@ -619,43 +630,75 @@ async def _scan_loaded_page_multi(page):
 
     각 패스의 요소를 모두 보존해 어느 한 상태에서만 숨겨지는 요소도 놓치지 않는다.
     최종 후보 중복은 verifier에서 (url + location + technique) 기준으로 합친다.
-    """
 
+    timings는 진단용 계측치일 뿐 탐지 동작에는 사용하지 않는다.
+    """
+    scan_started = time.perf_counter()
+    timings = {
+        "title": 0.0,
+        "viewport_setup": 0.0,
+        "wait_dom_quiet": 0.0,
+        "auto_scroll": 0.0,
+        "pass_capture": 0.0,
+        "dom_scan": 0.0,
+        "link_collect": 0.0,
+        "passes": {},
+    }
+
+    stage_started = time.perf_counter()
     title = await page.title()
+    timings["title"] += time.perf_counter() - stage_started
     passes = []
 
     desktop_name, desktop_viewport = MULTI_SCAN_VIEWPORTS[0]
+    stage_started = time.perf_counter()
     await page.set_viewport_size(desktop_viewport)
     await page.evaluate("window.scrollTo(0, 0)")
+    timings["viewport_setup"] += time.perf_counter() - stage_started
 
-    passes.append(
-        await _capture_pass(page, f"{desktop_name}-initial")
-    )
+    first_pass = await _capture_pass(page, f"{desktop_name}-initial")
+    passes.append(first_pass)
 
+    stage_started = time.perf_counter()
     await _wait_for_dom_quiet(page)
-    passes.append(
-        await _capture_pass(page, f"{desktop_name}-settled")
-    )
+    timings["wait_dom_quiet"] += time.perf_counter() - stage_started
+    settled_pass = await _capture_pass(page, f"{desktop_name}-settled")
+    passes.append(settled_pass)
 
+    stage_started = time.perf_counter()
     await _auto_scroll(page)
+    timings["auto_scroll"] += time.perf_counter() - stage_started
+    stage_started = time.perf_counter()
     await _wait_for_dom_quiet(page)
-    passes.append(
-        await _capture_pass(page, f"{desktop_name}-scrolled")
-    )
+    timings["wait_dom_quiet"] += time.perf_counter() - stage_started
+    scrolled_pass = await _capture_pass(page, f"{desktop_name}-scrolled")
+    passes.append(scrolled_pass)
 
     mobile_name, mobile_viewport = MULTI_SCAN_VIEWPORTS[1]
+    stage_started = time.perf_counter()
     await page.set_viewport_size(mobile_viewport)
     await page.evaluate("window.scrollTo(0, 0)")
+    timings["viewport_setup"] += time.perf_counter() - stage_started
+    stage_started = time.perf_counter()
     await _wait_for_dom_quiet(page)
-    passes.append(
-        await _capture_pass(page, f"{mobile_name}-settled")
+    timings["wait_dom_quiet"] += time.perf_counter() - stage_started
+    mobile_settled_pass = await _capture_pass(
+        page,
+        f"{mobile_name}-settled",
     )
+    passes.append(mobile_settled_pass)
 
+    stage_started = time.perf_counter()
     await _auto_scroll(page)
+    timings["auto_scroll"] += time.perf_counter() - stage_started
+    stage_started = time.perf_counter()
     await _wait_for_dom_quiet(page)
-    passes.append(
-        await _capture_pass(page, f"{mobile_name}-scrolled")
+    timings["wait_dom_quiet"] += time.perf_counter() - stage_started
+    mobile_scrolled_pass = await _capture_pass(
+        page,
+        f"{mobile_name}-scrolled",
     )
+    passes.append(mobile_scrolled_pass)
 
     all_elements = []
     all_links = set()
@@ -666,10 +709,24 @@ async def _scan_loaded_page_multi(page):
         all_links.update(scan_pass["links"])
         max_frame_count = max(max_frame_count, scan_pass["frame_count"])
 
+        pass_timing = scan_pass.get("timing", {})
+        timings["passes"][scan_pass["name"]] = {
+            "total": pass_timing.get("total", 0.0),
+            "dom_scan": pass_timing.get("dom_scan", 0.0),
+            "link_collect": pass_timing.get("link_collect", 0.0),
+            "observations": len(scan_pass["elements"]),
+            "frames": scan_pass["frame_count"],
+        }
+        timings["pass_capture"] += pass_timing.get("total", 0.0)
+        timings["dom_scan"] += pass_timing.get("dom_scan", 0.0)
+        timings["link_collect"] += pass_timing.get("link_collect", 0.0)
+
     unique_elements = {
         (element.get("selector"), element.get("text"))
         for element in all_elements
     }
+
+    timings["scan_total"] = time.perf_counter() - scan_started
 
     return {
         "title": title,
@@ -680,6 +737,7 @@ async def _scan_loaded_page_multi(page):
         "observation_count": len(all_elements),
         "scan_pass_count": len(passes),
         "scan_passes": [scan_pass["name"] for scan_pass in passes],
+        "timings": timings,
         "links": all_links,
     }
 
