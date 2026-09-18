@@ -51,6 +51,10 @@ def _is_transient_browser_error(exc) -> bool:
     return any(hint in message for hint in TRANSIENT_BROWSER_ERROR_HINTS)
 
 
+def _is_download_navigation_error(exc) -> bool:
+    return "download is starting" in str(exc).lower()
+
+
 def _canonicalize_pipeline_url(url: str) -> str:
     """기존 canonicalize + 명백한 일시성 challenge query 제거."""
 
@@ -155,6 +159,7 @@ async def crawl_site(
     discovery_sitemap_count = 0
     discovery_error_count = 0
     browser_retry_count = 0
+    browser_download_skip_count = 0
 
     def time_remaining():
         if max_seconds is None:
@@ -439,6 +444,7 @@ async def crawl_site(
             nonlocal page_limit_reached
             nonlocal interrupted_count
             nonlocal browser_retry_count
+            nonlocal browser_download_skip_count
 
             while True:
                 if stop_event.is_set():
@@ -514,6 +520,13 @@ async def crawl_site(
                             timeout=timeout_ms,
                         )
                     except Exception as exc:
+                        if _is_download_navigation_error(exc):
+                            # 다운로드가 시작된 URL은 브라우저가 HTML 문서로
+                            # 렌더링할 수 있는 페이지가 아니다. 탐색 실패로 세지
+                            # 않고 비-HTML 리소스 skip으로 별도 집계한다.
+                            browser_download_skip_count += 1
+                            continue
+
                         if _is_transient_browser_error(exc):
                             browser_retry_count += 1
                             try:
@@ -549,6 +562,10 @@ async def crawl_site(
                                     timeout=retry_timeout_ms,
                                 )
                             except Exception as retry_exc:
+                                if _is_download_navigation_error(retry_exc):
+                                    browser_download_skip_count += 1
+                                    continue
+
                                 async with state_lock:
                                     errors.append(
                                         {
@@ -858,6 +875,7 @@ async def crawl_site(
         "discovery_sitemap_count": discovery_sitemap_count,
         "discovery_error_count": discovery_error_count,
         "browser_retry_count": browser_retry_count,
+        "browser_download_skip_count": browser_download_skip_count,
         "limit_reached": (
             page_limit_reached or time_limit_reached
         ),
