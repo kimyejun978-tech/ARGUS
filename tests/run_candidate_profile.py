@@ -166,6 +166,22 @@ async def run(url, max_pages, max_seconds, workers, discovery_workers):
         f"time_limit={crawl.get('time_limit_reached', False)}",
     )
 
+    if crawl.get("errors"):
+        print("\n[크롤러 오류 상위 5건]")
+        for error in crawl["errors"][:5]:
+            print(
+                " -",
+                error.get("url", ""),
+                "|",
+                str(error.get("error", ""))[:220],
+            )
+
+    if crawl.get("discovery_error_count", 0):
+        print(
+            "\nHTTP discovery 실패:",
+            crawl.get("discovery_error_count", 0),
+        )
+
     print("\n[기법별 raw / unique / final]")
     for technique in TECHNIQUES:
         raw_count = raw_by_technique.get(technique, 0)
