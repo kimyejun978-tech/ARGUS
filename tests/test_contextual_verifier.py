@@ -362,8 +362,95 @@ class ContextualVerifierTests(unittest.TestCase):
                 rejected[0]["legacy_semantic_support"],
                 rejected[0]["multilingual_support"],
             ),
-            0.45,
+            0.55,
         )
+
+    def test_visible_equivalent_css_text_is_not_open_set_suspicious(self):
+        urls = [f"https://example.com/page-{index}" for index in range(8)]
+        target_url = urls[0]
+        hidden_selector = "main > section > p.hidden-copy"
+        visible_selector = "main > section > p.visible-copy"
+        text = "ordinary duplicated slide text"
+        passes = [
+            "desktop-initial",
+            "desktop-settled",
+            "desktop-scrolled",
+            "mobile-settled",
+            "mobile-scrolled",
+        ]
+        candidates = [
+            {
+                "url": target_url,
+                "location": hidden_selector,
+                "evidence_text": text,
+                "technique": "OFFSCREEN",
+                "reason": ["요소가 비정상적으로 먼 화면 밖 좌표에 배치됨"],
+                "rect": {"x": -9999, "y": 0, "width": 120, "height": 20},
+                "scan_pass": pass_name,
+            }
+            for pass_name in passes
+        ]
+        pages = [
+            {
+                "url": url,
+                "title": "Page",
+                "elements": (
+                    [
+                        {
+                            "selector": hidden_selector,
+                            "text": text,
+                            "style": {
+                                "visibility": "visible",
+                                "fontSize": "16px",
+                            },
+                            "effectiveOpacity": 1.0,
+                            "textColorAlpha": 1.0,
+                            "sameTextBackground": False,
+                            "displayNoneSource": None,
+                            "inViewport": False,
+                        },
+                        {
+                            "selector": visible_selector,
+                            "text": text,
+                            "style": {
+                                "visibility": "visible",
+                                "fontSize": "16px",
+                            },
+                            "effectiveOpacity": 1.0,
+                            "textColorAlpha": 1.0,
+                            "sameTextBackground": False,
+                            "displayNoneSource": None,
+                            "inViewport": True,
+                        },
+                    ]
+                    if url == target_url
+                    else [
+                        {
+                            "selector": "main > p",
+                            "text": "ordinary content",
+                            "style": {
+                                "visibility": "visible",
+                                "fontSize": "16px",
+                            },
+                            "effectiveOpacity": 1.0,
+                            "textColorAlpha": 1.0,
+                            "sameTextBackground": False,
+                            "displayNoneSource": None,
+                            "inViewport": True,
+                        }
+                    ]
+                ),
+            }
+            for url in urls
+        ]
+
+        verified, rejected = verify_candidates([candidates], pages=pages)
+
+        self.assertEqual(len(verified), 0)
+        self.assertEqual(len(rejected), 1)
+        self.assertTrue(rejected[0]["visible_equivalent_present"])
+        self.assertEqual(rejected[0]["visible_equivalent_count"], 1)
+        self.assertEqual(rejected[0]["verification_status"], "BENIGN_LIKELY")
 
     def test_normal_navigation_text_is_not_confirmed_by_one_semantic_branch(self):
         url = "https://example.com/place/1"
