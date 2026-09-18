@@ -2,6 +2,8 @@ import re
 import unicodedata
 from urllib.parse import urlsplit
 
+from detectors.homoglyph import CONFUSABLE_MAP
+
 
 UI_HINTS = (
     "dialog",
@@ -73,26 +75,24 @@ def _unicode_anomaly(text):
         score += 0.20
         reasons.append("zero-width/bidi 제어문자 포함")
 
-    # 서로 다른 문자 체계가 짧은 토큰 안에서 섞이면 우회 가능성을 높게 본다.
+    # 단순한 다국어 혼합은 이상 신호가 아니다.
+    # 예: "우주인C", "GPS기반", "BOD_약간", "22μg" 같은 정상 표기.
+    # 실제 HOMOGLYPH detector와 동일하게 ASCII Latin + 시각적으로 혼동 가능한
+    # 키릴/그리스 문자 조합일 때만 open-set 가산점을 준다.
     tokens = re.findall(r"\w+", text, flags=re.UNICODE)
-    mixed_token = False
+    confusable_mixed_token = False
 
     for token in tokens:
-        token_scripts = {
-            bucket
-            for char in token
-            if (bucket := _script_bucket(char)) is not None
-        }
-        if len(token_scripts) >= 2:
-            mixed_token = True
+        has_ascii_latin = bool(re.search(r"[A-Za-z]", token))
+        has_confusable = any(char in CONFUSABLE_MAP for char in token)
+
+        if has_ascii_latin and has_confusable:
+            confusable_mixed_token = True
             break
 
-    if mixed_token:
+    if confusable_mixed_token:
         score += 0.12
-        reasons.append("단일 토큰 내 문자 체계 혼합")
-    elif len(scripts) >= 3:
-        score += 0.05
-        reasons.append("여러 문자 체계 혼합")
+        reasons.append("단일 토큰 내 Latin/유사 키릴·그리스 문자 혼합")
 
     return min(0.25, score), reasons
 
