@@ -222,6 +222,26 @@ def _ui_landmark_penalty(candidate):
     return 0.10 if any(hint in blob for hint in UI_LANDMARK_HINTS) else 0.0
 
 
+def _independent_technique_count(techniques):
+    """
+    동일 요소에서 여러 detector가 울려도 항상 독립 증거는 아니다.
+
+    TRANSPARENT + OFFSCREEN은 같은 CSS 숨김 상태에서 함께 발생하기 쉬우므로
+    둘만 겹친 경우에는 1개의 구조 계열 증거로 취급한다. JAMO/HOMOGLYPH처럼
+    텍스트 변조 계열이 섞이면 독립적인 추가 증거로 인정한다.
+    """
+
+    techniques = set(techniques or [])
+    if not techniques:
+        return 0
+
+    css_only = {"TRANSPARENT", "OFFSCREEN"}
+    if techniques.issubset(css_only):
+        return 1
+
+    return len(techniques)
+
+
 def _repetition_stats(candidates, total_pages):
     exact_pages = defaultdict(set)
     location_pages = defaultdict(set)
@@ -250,7 +270,9 @@ def _repetition_stats(candidates, total_pages):
         text_count = len(text_pages[(technique, text)])
         repeat_count = max(exact_count, location_count)
         repeat_ratio = repeat_count / max(1, total_pages)
-        multi_technique_count = len(techniques_by_element[(url, location)])
+        techniques = techniques_by_element[(url, location)]
+        multi_technique_count = len(techniques)
+        independent_technique_count = _independent_technique_count(techniques)
 
         return {
             "exact_repeat_count": exact_count,
@@ -259,6 +281,7 @@ def _repetition_stats(candidates, total_pages):
             "repeat_count": repeat_count,
             "repeat_ratio": repeat_ratio,
             "multi_technique_count": multi_technique_count,
+            "independent_technique_count": independent_technique_count,
         }
 
     return stats
@@ -369,7 +392,7 @@ def verify_candidates(candidate_groups, pages=None):
 
         multi_technique_bonus = min(
             0.16,
-            0.08 * max(0, repetition["multi_technique_count"] - 1),
+            0.08 * max(0, repetition["independent_technique_count"] - 1),
         )
         novelty_bonus = _novelty_bonus(repeat_count)
 
@@ -388,7 +411,7 @@ def verify_candidates(candidate_groups, pages=None):
             structure_score=structure_score,
             repeat_count=repeat_count,
             repeat_ratio=repeat_ratio,
-            multi_technique_count=repetition["multi_technique_count"],
+            multi_technique_count=repetition["independent_technique_count"],
             total_pages=total_pages,
         )
 
@@ -429,7 +452,7 @@ def verify_candidates(candidate_groups, pages=None):
                 )
                 or (
                     open_score >= 0.64
-                    and repetition["multi_technique_count"] >= 2
+                    and repetition["independent_technique_count"] >= 2
                     and structure_score >= 0.60
                     and repeat_count <= 3
                 )
@@ -460,6 +483,7 @@ def verify_candidates(candidate_groups, pages=None):
         item["template_repeat_count"] = repeat_count
         item["template_repeat_ratio"] = round(repeat_ratio, 3)
         item["multi_technique_count"] = repetition["multi_technique_count"]
+        item["independent_technique_count"] = repetition["independent_technique_count"]
         item["is_violation"] = is_violation
 
         reason_parts = [
@@ -479,9 +503,14 @@ def verify_candidates(candidate_groups, pages=None):
         if ui_penalty:
             reason_parts.append("공통 UI 문맥 패널티 적용")
         if repetition["multi_technique_count"] >= 2:
-            reason_parts.append(
-                f"동일 요소에서 {repetition['multi_technique_count']}개 기법 중첩"
-            )
+            if repetition["independent_technique_count"] >= 2:
+                reason_parts.append(
+                    f"동일 요소에서 {repetition['multi_technique_count']}개 기법 중첩"
+                )
+            else:
+                reason_parts.append(
+                    "TRANSPARENT/OFFSCREEN CSS 중첩은 독립 증거로 가산하지 않음"
+                )
         if open_reasons:
             reason_parts.append("open-set: " + ", ".join(open_reasons))
 
