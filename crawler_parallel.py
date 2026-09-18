@@ -612,13 +612,14 @@ async def crawl_site(
             확인될 때만 전체 종료로 확정한다.
             """
 
+            nonlocal time_limit_reached
+
             stable_idle_rounds = 0
 
             while not stop_event.is_set():
                 remaining = time_remaining()
 
                 if remaining is not None and remaining <= 0:
-                    nonlocal time_limit_reached
                     time_limit_reached = True
                     stop_event.set()
                     return
