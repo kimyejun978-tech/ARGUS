@@ -65,6 +65,7 @@ def _print_counter(title, counter, limit=20):
 async def run(url, max_pages, max_seconds, workers, discovery_workers):
     started = time.perf_counter()
 
+    crawl_started = time.perf_counter()
     crawl = await crawl_site(
         url,
         max_pages=max_pages,
@@ -72,9 +73,11 @@ async def run(url, max_pages, max_seconds, workers, discovery_workers):
         worker_count=workers,
         discovery_worker_count=discovery_workers,
     )
+    crawl_elapsed = time.perf_counter() - crawl_started
 
-    elapsed = time.perf_counter() - started
     pages = crawl.get("pages", [])
+
+    detection_started = time.perf_counter()
     groups = _collect_groups(pages)
 
     raw = [
@@ -83,10 +86,14 @@ async def run(url, max_pages, max_seconds, workers, discovery_workers):
         for candidate in groups[technique]
     ]
 
+    detection_elapsed = time.perf_counter() - detection_started
+
+    verifier_started = time.perf_counter()
     verified, rejected = verify_candidates(
         [groups[technique] for technique in TECHNIQUES],
         pages=pages,
     )
+    verifier_elapsed = time.perf_counter() - verifier_started
 
     raw_by_technique = Counter(candidate.get("technique", "UNKNOWN") for candidate in raw)
     unique_by_technique = defaultdict(set)
@@ -141,8 +148,22 @@ async def run(url, max_pages, max_seconds, workers, discovery_workers):
     print("raw 관측 합          :", len(raw))
     print("dedup 후보 합        :", len(merged))
     print("최종 유지 후보       :", len(verified))
+    total_elapsed = time.perf_counter() - started
+
     print("검증 제외 후보       :", len(rejected))
-    print("경과 시간            :", f"{elapsed:.3f}초")
+    print("크롤링 시간          :", f"{crawl_elapsed:.3f}초")
+    print("Detector 시간        :", f"{detection_elapsed:.3f}초")
+    print("Verifier 시간        :", f"{verifier_elapsed:.3f}초")
+    print("전체 프로파일 시간   :", f"{total_elapsed:.3f}초")
+    print(
+        "크롤러 진단          :",
+        f"known={crawl.get('known_page_count', 0)}",
+        f"attempted={crawl.get('attempted_count', 0)}",
+        f"pending={crawl.get('pending_count', 0)}",
+        f"discovery_pending={crawl.get('discovery_pending_count', 0)}",
+        f"errors={len(crawl.get('errors', []))}",
+        f"limit={crawl.get('limit_reached', False)}",
+    )
 
     print("\n[기법별 raw / unique / final]")
     for technique in TECHNIQUES:
@@ -195,7 +216,10 @@ async def run(url, max_pages, max_seconds, workers, discovery_workers):
         "raw": len(raw),
         "unique": len(merged),
         "verified": len(verified),
-        "elapsed": elapsed,
+        "crawl_elapsed": crawl_elapsed,
+        "detection_elapsed": detection_elapsed,
+        "verifier_elapsed": verifier_elapsed,
+        "elapsed": total_elapsed,
     }
 
 
