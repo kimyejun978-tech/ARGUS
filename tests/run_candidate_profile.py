@@ -1,7 +1,13 @@
 import argparse
 import asyncio
+import sys
 import time
 from collections import Counter, defaultdict
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from crawler_parallel import crawl_site
 from detectors.homoglyph import detect_homoglyph_candidates
