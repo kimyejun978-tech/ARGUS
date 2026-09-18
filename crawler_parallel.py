@@ -296,8 +296,10 @@ async def crawl_site(
                         timeout=0.15,
                     )
                 except TimeoutError:
-                    if await queues_are_finished():
-                        return
+                    # worker가 개별적으로 "전체 종료"를 판단하면, 다른 worker가
+                    # queue에서 항목을 꺼낸 직후 active counter를 올리기 전의 짧은
+                    # 틈을 완료 상태로 오인할 수 있다. 종료 판단은 아래의 중앙
+                    # completion monitor만 담당한다.
                     continue
 
                 claimed = False
@@ -441,8 +443,9 @@ async def crawl_site(
                         )
                     )
                 except TimeoutError:
-                    if await queues_are_finished():
-                        return
+                    # discovery/browser 두 queue가 서로 새 작업을 추가할 수 있으므로
+                    # worker 자체는 일시적인 queue 공백만 보고 종료하지 않는다.
+                    # 안정된 전체 quiescence는 completion monitor가 판정한다.
                     continue
 
                 claimed = False
@@ -598,6 +601,39 @@ async def crawl_site(
 
                     browser_queue.task_done()
 
+        async def completion_monitor():
+            """
+            두 작업 queue가 모두 비고 active worker도 없는 상태가 잠깐 보였다는
+            이유만으로 crawl을 끝내지 않는다.
+
+            Queue.get() 직후 active counter 증가 전의 아주 짧은 race window가 있어
+            개별 worker 종료 방식에서는 아직 처리할 항목이 있는데 worker pool이
+            줄어드는 문제가 생길 수 있다. 100ms 간격으로 연속 3회 완전 유휴가
+            확인될 때만 전체 종료로 확정한다.
+            """
+
+            stable_idle_rounds = 0
+
+            while not stop_event.is_set():
+                remaining = time_remaining()
+
+                if remaining is not None and remaining <= 0:
+                    nonlocal time_limit_reached
+                    time_limit_reached = True
+                    stop_event.set()
+                    return
+
+                if await queues_are_finished():
+                    stable_idle_rounds += 1
+
+                    if stable_idle_rounds >= 3:
+                        stop_event.set()
+                        return
+                else:
+                    stable_idle_rounds = 0
+
+                await asyncio.sleep(0.10)
+
         discovery_tasks = [
             asyncio.create_task(
                 discovery_worker(index + 1),
@@ -614,7 +650,12 @@ async def crawl_site(
             for index, page in enumerate(browser_pages)
         ]
 
-        all_tasks = discovery_tasks + browser_tasks
+        monitor_task = asyncio.create_task(
+            completion_monitor(),
+            name="argus-completion-monitor",
+        )
+
+        all_tasks = discovery_tasks + browser_tasks + [monitor_task]
 
         try:
             if max_seconds is None:
