@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import html
+import json
 import tempfile
 import threading
 import time
@@ -93,15 +94,16 @@ def _positive_case(index):
         elif variant == 1:
             class_name = "mobile-transparent"
         else:
-            payload = html.escape(text).replace("'", "&#39;")
-            markup = f'<div id="slot-{element_id}"></div>'
+            slot_id = "slot-" + element_id
+            markup = f'<div id="{slot_id}"></div>'
             script = (
-                "setTimeout(()=>document.getElementById("
-                f"'slot-{element_id}'"
-                ").insertAdjacentHTML("
-                "'beforeend',"
-                f"'&lt;span id=\"{element_id}\" style=\"opacity:0\"&gt;{payload}&lt;/span&gt;'"
-                "),180);"
+                "setTimeout(()=>{"
+                "const e=document.createElement('span');"
+                f"e.id={json.dumps(element_id)};"
+                "e.style.opacity='0';"
+                f"e.textContent={json.dumps(text)};"
+                f"document.getElementById({json.dumps(slot_id)}).appendChild(e);"
+                "},180);"
             )
             return technique, text, markup, script
 
@@ -113,15 +115,18 @@ def _positive_case(index):
         elif variant == 1:
             class_name = "mobile-offscreen"
         else:
-            payload = html.escape(text).replace("'", "&#39;")
-            markup = f'<div id="slot-{element_id}"></div>'
+            slot_id = "slot-" + element_id
+            markup = f'<div id="{slot_id}"></div>'
             script = (
-                "setTimeout(()=>document.getElementById("
-                f"'slot-{element_id}'"
-                ").insertAdjacentHTML("
-                "'beforeend',"
-                f"'&lt;span id=\"{element_id}\" style=\"position:absolute;left:-9999px;top:10px\"&gt;{payload}&lt;/span&gt;'"
-                "),180);"
+                "setTimeout(()=>{"
+                "const e=document.createElement('span');"
+                f"e.id={json.dumps(element_id)};"
+                "e.style.position='absolute';"
+                "e.style.left='-9999px';"
+                "e.style.top='10px';"
+                f"e.textContent={json.dumps(text)};"
+                f"document.getElementById({json.dumps(slot_id)}).appendChild(e);"
+                "},180);"
             )
             return technique, text, markup, script
 
@@ -129,20 +134,20 @@ def _positive_case(index):
         text = f"ㅌㅔㅅㅡㅌㅡ {marker}-J"
 
         if variant == 2:
-            payload = html.escape(text).replace("'", "&#39;")
-            markup = f'<div id="slot-{element_id}"></div>'
+            slot_id = "slot-" + element_id
+            markup = f'<div id="{slot_id}"></div>'
             script = (
-                "setTimeout(()=>document.getElementById("
-                f"'slot-{element_id}'"
-                ").insertAdjacentHTML("
-                "'beforeend',"
-                f"'&lt;p id=\"{element_id}\"&gt;{payload}&lt;/p&gt;'"
-                "),180);"
+                "setTimeout(()=>{"
+                "const e=document.createElement('p');"
+                f"e.id={json.dumps(element_id)};"
+                f"e.textContent={json.dumps(text)};"
+                f"document.getElementById({json.dumps(slot_id)}).appendChild(e);"
+                "},180);"
             )
             return technique, text, markup, script
 
     else:
-        mixed = ("SC" + CYRILLIC_O + "PE")
+        mixed = "SC" + CYRILLIC_O + "PE"
         text = f"{mixed}-{marker}-H"
 
     attributes = []
@@ -157,7 +162,6 @@ def _positive_case(index):
         f'{html.escape(text)}</span>'
     )
     return technique, text, markup, script
-
 
 def _control_markup(index):
     return (
@@ -470,9 +474,10 @@ async def run(page_count, workers, discovery_workers, max_seconds, heavy_rows):
                 len(verifier_hits) / len(expected)
                 if expected else 1.0
             )
+            false_positive_count = len(unexpected) + len(control_leaks)
             precision = (
                 len(verifier_hits)
-                / max(1, len(verifier_hits) + len(unexpected))
+                / max(1, len(verifier_hits) + false_positive_count)
             )
             page_total = crawl.get("page_count", 0)
             pages_per_second = page_total / max(crawl_elapsed, 0.001)
@@ -519,7 +524,7 @@ async def run(page_count, workers, discovery_workers, max_seconds, heavy_rows):
             print(
                 "Verifier precision  :",
                 _pct(precision),
-                f"({len(verifier_hits)}/{len(verifier_hits) + len(unexpected)})",
+                f"({len(verifier_hits)}/{len(verifier_hits) + false_positive_count})",
             )
             print(
                 "Control leakage     :",
