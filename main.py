@@ -15,7 +15,15 @@ from verifier.contextual import verify_candidates
 
 MAX_CRAWL_PAGES = int(os.getenv("ARGUS_MAX_PAGES", "10000"))
 MAX_CRAWL_SECONDS = float(os.getenv("ARGUS_MAX_SECONDS", "1620"))
-CRAWL_WORKERS = max(1, int(os.getenv("ARGUS_WORKERS", "4")))
+
+# 심사 PC 사양을 미리 알 수 없으므로 8 worker를 무조건 강제하지 않는다.
+# 논리 CPU 수를 기준으로 4~8 사이에서 자동 선택하고, ARGUS_WORKERS 환경변수로
+# 언제든 명시적으로 덮어쓸 수 있게 한다.
+DEFAULT_CRAWL_WORKERS = min(8, max(4, os.cpu_count() or 4))
+CRAWL_WORKERS = max(
+    1,
+    int(os.getenv("ARGUS_WORKERS", str(DEFAULT_CRAWL_WORKERS))),
+)
 DISCOVERY_WORKERS = max(0, int(os.getenv("ARGUS_DISCOVERY_WORKERS", "8")))
 
 
