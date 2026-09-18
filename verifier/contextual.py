@@ -178,6 +178,11 @@ def _technique_strength(candidate):
     if technique == "TRANSPARENT":
         score = 0.56
 
+        # opacity:0 자체도 공모전 대표 은닉 패턴이므로 color:transparent와
+        # 비슷한 수준의 구조 강도로 본다. 단, open-set 최종 통과는 여전히
+        # 희귀성/Unicode 이상/반복 패널티 등 추가 신호가 필요하다.
+        if "opacity가 0" in reasons:
+            score += 0.08
         if "텍스트 색상이 완전히 투명" in reasons:
             score += 0.08
         if "배경 색상이 동일" in reasons:
