@@ -60,11 +60,10 @@ def _candidate_key(candidate):
         path,
         query,
         candidate.get("technique", ""),
-        _normalize_text(
-            candidate.get("normalized_text")
-            or candidate.get("evidence_text")
-            or ""
-        ),
+        # Ground truth는 실제 DOM에 심은 원문 evidence를 기준으로 비교한다.
+        # normalized_text는 detector 내부 의미 정규화용이라 HOMOGLYPH의
+        # 키릴/그리스 confusable을 ASCII로 바꿔 false miss/FP를 만들 수 있다.
+        _normalize_text(candidate.get("evidence_text") or ""),
     )
 
 
