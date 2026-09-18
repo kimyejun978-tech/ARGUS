@@ -150,7 +150,9 @@ class ContextualVerifierTests(unittest.TestCase):
         self.assertGreaterEqual(verified[0]["open_set_score"], 0.56)
 
     def test_stable_unknown_homoglyph_survives_open_set(self):
-        urls = [f"https://example.com/page-{index}" for index in range(6)]
+        # open-set의 사이트 희귀성 신뢰도는 8페이지부터 최대치가 된다.
+        # 이 테스트는 안정적인 5-pass 관측이 감점되지 않는 회귀를 확인한다.
+        urls = [f"https://example.com/page-{index}" for index in range(8)]
         target_url = urls[0]
         selector = "main > article > p.stable-hidden"
         passes = [
