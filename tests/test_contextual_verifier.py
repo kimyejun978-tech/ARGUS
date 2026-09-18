@@ -452,6 +452,48 @@ class ContextualVerifierTests(unittest.TestCase):
         self.assertEqual(rejected[0]["visible_equivalent_count"], 1)
         self.assertEqual(rejected[0]["verification_status"], "BENIGN_LIKELY")
 
+    def test_normal_hangul_latin_label_is_not_unicode_anomaly(self):
+        urls = [f"https://example.com/page-{index}" for index in range(8)]
+        target_url = urls[0]
+        selector = "main > section > dl > dt"
+        passes = [
+            "desktop-initial",
+            "desktop-settled",
+            "desktop-scrolled",
+            "mobile-settled",
+            "mobile-scrolled",
+        ]
+        candidates = [
+            {
+                "url": target_url,
+                "location": selector,
+                "evidence_text": "우주인C",
+                "technique": "OFFSCREEN",
+                "reason": ["글자 크기가 0.0px로 매우 작음"],
+                "scan_pass": pass_name,
+            }
+            for pass_name in passes
+        ]
+        pages = [
+            {
+                "url": url,
+                "title": "Page",
+                "elements": (
+                    [{"selector": selector, "text": "우주인C"}]
+                    if url == target_url
+                    else [{"selector": "main > p", "text": "ordinary content"}]
+                ),
+            }
+            for url in urls
+        ]
+
+        verified, rejected = verify_candidates([candidates], pages=pages)
+
+        self.assertEqual(len(verified), 0)
+        self.assertEqual(len(rejected), 1)
+        self.assertEqual(rejected[0]["verification_status"], "BENIGN_LIKELY")
+        self.assertLess(rejected[0]["open_set_score"], 0.66)
+
     def test_visible_equivalent_with_zero_width_obfuscation_stays_suspicious(self):
         urls = [f"https://example.com/page-{index}" for index in range(8)]
         target_url = urls[0]
