@@ -10,6 +10,7 @@ DOM_SCAN_SCRIPT = r"""
 () => {
     const styleCache = new WeakMap();
     const selectorCache = new WeakMap();
+    const siblingMetaCache = new WeakMap();
     const effectiveCache = new WeakMap();
     const backgroundCache = new WeakMap();
 
@@ -46,20 +47,30 @@ DOM_SCAN_SCRIPT = r"""
         const parent = element.parentElement;
 
         if (parent) {
-            let sameTagCount = 0;
-            let sameTagIndex = 0;
+            let siblingMeta = siblingMetaCache.get(parent);
 
-            for (const child of parent.children) {
-                if (child.tagName !== element.tagName) {
-                    continue;
+            if (!siblingMeta) {
+                const tagCounts = new Map();
+                const tagIndexes = new WeakMap();
+
+                for (const child of parent.children) {
+                    const tagName = child.tagName;
+                    const nextIndex = (tagCounts.get(tagName) || 0) + 1;
+                    tagCounts.set(tagName, nextIndex);
+                    tagIndexes.set(child, nextIndex);
                 }
 
-                sameTagCount += 1;
-
-                if (child === element) {
-                    sameTagIndex = sameTagCount;
-                }
+                siblingMeta = {
+                    tagCounts,
+                    tagIndexes
+                };
+                siblingMetaCache.set(parent, siblingMeta);
             }
+
+            const sameTagCount =
+                siblingMeta.tagCounts.get(element.tagName) || 1;
+            const sameTagIndex =
+                siblingMeta.tagIndexes.get(element) || 1;
 
             if (sameTagCount > 1) {
                 part += `:nth-of-type(${sameTagIndex})`;
