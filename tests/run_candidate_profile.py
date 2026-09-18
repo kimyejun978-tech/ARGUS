@@ -164,6 +164,7 @@ async def run(url, max_pages, max_seconds, workers, discovery_workers):
         f"discovery_pending={crawl.get('discovery_pending_count', 0)}",
         f"errors={len(crawl.get('errors', []))}",
         f"browser_retries={crawl.get('browser_retry_count', 0)}",
+        f"downloads={crawl.get('browser_download_skip_count', 0)}",
         f"page_limit={crawl.get('page_limit_reached', False)}",
         f"time_limit={crawl.get('time_limit_reached', False)}",
     )
