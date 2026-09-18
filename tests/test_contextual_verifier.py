@@ -494,6 +494,63 @@ class ContextualVerifierTests(unittest.TestCase):
         self.assertEqual(rejected[0]["verification_status"], "BENIGN_LIKELY")
         self.assertLess(rejected[0]["open_set_score"], 0.66)
 
+    def test_visible_equivalent_known_css_text_is_not_confirmed(self):
+        url = "https://example.com/notice"
+        hidden_selector = "select#category > option:nth-of-type(4)"
+        visible_selector = "main > nav > a:nth-of-type(4)"
+        text = "이벤트"
+        candidate = {
+            "url": url,
+            "location": hidden_selector,
+            "evidence_text": text,
+            "technique": "TRANSPARENT",
+            "reason": ["opacity가 0인 요소 또는 부모 요소에 의해 숨겨짐"],
+            "opacity_source": "select#category",
+            "scan_pass": "desktop-initial",
+        }
+        pages = [
+            {
+                "url": url,
+                "title": "공지사항",
+                "elements": [
+                    {
+                        "selector": hidden_selector,
+                        "text": text,
+                        "style": {
+                            "visibility": "visible",
+                            "fontSize": "16px",
+                        },
+                        "effectiveOpacity": 0.0,
+                        "textColorAlpha": 1.0,
+                        "sameTextBackground": False,
+                        "displayNoneSource": None,
+                        "inViewport": False,
+                    },
+                    {
+                        "selector": visible_selector,
+                        "text": text,
+                        "style": {
+                            "visibility": "visible",
+                            "fontSize": "16px",
+                        },
+                        "effectiveOpacity": 1.0,
+                        "textColorAlpha": 1.0,
+                        "sameTextBackground": False,
+                        "displayNoneSource": None,
+                        "inViewport": True,
+                    },
+                ],
+            }
+        ]
+
+        verified, rejected = verify_candidates([[candidate]], pages=pages)
+
+        self.assertEqual(len(verified), 0)
+        self.assertEqual(len(rejected), 1)
+        self.assertTrue(rejected[0]["visible_equivalent_present"])
+        self.assertTrue(rejected[0]["css_visible_duplicate"])
+        self.assertEqual(rejected[0]["verification_status"], "BENIGN_LIKELY")
+
     def test_visible_equivalent_with_zero_width_obfuscation_stays_suspicious(self):
         urls = [f"https://example.com/page-{index}" for index in range(8)]
         target_url = urls[0]
