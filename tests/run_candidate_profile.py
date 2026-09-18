@@ -4,6 +4,7 @@ import sys
 import time
 from collections import Counter, defaultdict
 from pathlib import Path
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -60,6 +61,180 @@ def _print_counter(title, counter, limit=20):
 
     for name, count in counter.most_common(limit):
         print(f"  {count:>6}  {name}")
+
+
+def _collect_crawler_performance(pages):
+    stage_totals = defaultdict(float)
+    pass_stats = defaultdict(
+        lambda: {
+            "count": 0,
+            "total": 0.0,
+            "dom_scan": 0.0,
+            "link_collect": 0.0,
+            "observations": 0,
+            "frames": 0,
+        }
+    )
+    path_stats = defaultdict(
+        lambda: {
+            "count": 0,
+            "total": 0.0,
+            "max": 0.0,
+            "navigation": 0.0,
+            "scan": 0.0,
+            "frames": 0,
+            "observations": 0,
+        }
+    )
+    slow_pages = []
+
+    stage_keys = (
+        "page_total",
+        "navigation",
+        "scan_total",
+        "wait_dom_quiet",
+        "auto_scroll",
+        "pass_capture",
+        "dom_scan",
+        "link_collect",
+        "viewport_setup",
+        "title",
+    )
+
+    for page in pages:
+        timings = page.get("timings") or {}
+
+        for key in stage_keys:
+            stage_totals[key] += float(timings.get(key, 0.0) or 0.0)
+
+        for pass_name, values in (timings.get("passes") or {}).items():
+            stat = pass_stats[pass_name]
+            stat["count"] += 1
+            stat["total"] += float(values.get("total", 0.0) or 0.0)
+            stat["dom_scan"] += float(
+                values.get("dom_scan", 0.0) or 0.0
+            )
+            stat["link_collect"] += float(
+                values.get("link_collect", 0.0) or 0.0
+            )
+            stat["observations"] += int(
+                values.get("observations", 0) or 0
+            )
+            stat["frames"] += int(values.get("frames", 0) or 0)
+
+        page_total = float(timings.get("page_total", 0.0) or 0.0)
+        navigation = float(timings.get("navigation", 0.0) or 0.0)
+        scan_total = float(timings.get("scan_total", 0.0) or 0.0)
+        page_url = page.get("url", "")
+        frame_count = int(page.get("frame_count", 0) or 0)
+        observations = int(page.get("observation_count", 0) or 0)
+
+        if page_total > 0:
+            slow_pages.append(
+                {
+                    "url": page_url,
+                    "total": page_total,
+                    "navigation": navigation,
+                    "scan": scan_total,
+                    "frames": frame_count,
+                    "observations": observations,
+                }
+            )
+
+        path = urlsplit(page_url).path or "/"
+        path_stat = path_stats[path]
+        path_stat["count"] += 1
+        path_stat["total"] += page_total
+        path_stat["max"] = max(path_stat["max"], page_total)
+        path_stat["navigation"] += navigation
+        path_stat["scan"] += scan_total
+        path_stat["frames"] += frame_count
+        path_stat["observations"] += observations
+
+    slow_pages.sort(key=lambda item: item["total"], reverse=True)
+
+    return stage_totals, pass_stats, path_stats, slow_pages
+
+
+def _print_crawler_performance(pages):
+    stage_totals, pass_stats, path_stats, slow_pages = (
+        _collect_crawler_performance(pages)
+    )
+
+    if not slow_pages:
+        return
+
+    print("\n[크롤러 단계별 누적 worker 시간]")
+    print("  ※ 병렬 worker의 페이지별 시간을 합산한 값이라 실제 벽시계 시간보다 큼")
+    labels = (
+        ("page_total", "페이지 전체"),
+        ("navigation", "navigation"),
+        ("scan_total", "5-pass scan"),
+        ("wait_dom_quiet", "DOM 안정 대기"),
+        ("auto_scroll", "자동 스크롤"),
+        ("pass_capture", "pass capture"),
+        ("dom_scan", "DOM evaluate"),
+        ("link_collect", "링크 수집"),
+        ("viewport_setup", "viewport 전환"),
+        ("title", "title 조회"),
+    )
+    for key, label in labels:
+        print(f"  {label:<16} {stage_totals[key]:>10.3f}초")
+
+    print("\n[scan pass별 capture 성능]")
+    for pass_name in (
+        "desktop-initial",
+        "desktop-settled",
+        "desktop-scrolled",
+        "mobile-settled",
+        "mobile-scrolled",
+    ):
+        stat = pass_stats.get(pass_name)
+        if not stat or not stat["count"]:
+            continue
+        count = stat["count"]
+        print(
+            f"  {pass_name:<18} "
+            f"avg={stat['total']/count:>6.3f}s "
+            f"dom={stat['dom_scan']/count:>6.3f}s "
+            f"links={stat['link_collect']/count:>6.3f}s "
+            f"obs={stat['observations']/count:>7.1f} "
+            f"frames={stat['frames']/count:>5.1f}"
+        )
+
+    print("\n[느린 페이지 상위 15건]")
+    for item in slow_pages[:15]:
+        print(
+            " -",
+            f"total={item['total']:.3f}s",
+            f"nav={item['navigation']:.3f}s",
+            f"scan={item['scan']:.3f}s",
+            f"frames={item['frames']}",
+            f"obs={item['observations']}",
+            "|",
+            item["url"][:220],
+        )
+
+    ranked_paths = sorted(
+        path_stats.items(),
+        key=lambda item: item[1]["total"],
+        reverse=True,
+    )
+    print("\n[경로별 누적 처리시간 상위 12개]")
+    for path, stat in ranked_paths[:12]:
+        count = stat["count"]
+        avg = stat["total"] / count if count else 0.0
+        avg_frames = stat["frames"] / count if count else 0.0
+        avg_obs = stat["observations"] / count if count else 0.0
+        print(
+            f"  count={count:>4} "
+            f"sum={stat['total']:>8.2f}s "
+            f"avg={avg:>6.3f}s "
+            f"max={stat['max']:>6.3f}s "
+            f"frames={avg_frames:>5.1f} "
+            f"obs={avg_obs:>8.1f} "
+            f"| {path}"
+        )
 
 
 async def run(url, max_pages, max_seconds, workers, discovery_workers):
@@ -184,6 +359,8 @@ async def run(url, max_pages, max_seconds, workers, discovery_workers):
             "\nHTTP discovery 실패:",
             crawl.get("discovery_error_count", 0),
         )
+
+    _print_crawler_performance(pages)
 
     print("\n[기법별 raw / unique / final]")
     for technique in TECHNIQUES:
