@@ -2,9 +2,9 @@ import re
 import unicodedata
 from collections import defaultdict
 
-from verifier.multilingual_semantic import multilingual_semantic_score
+from verifier.multilingual_semantic import multilingual_semantic_details
 from verifier.open_set import open_set_anomaly_score
-from verifier.semantic_model import semantic_risk_probability
+from verifier.semantic_model import semantic_risk_with_support
 
 
 UI_LANDMARK_HINTS = (
@@ -352,12 +352,22 @@ def verify_candidates(candidate_groups, pages=None):
         )
         evidence_text = _candidate_text(candidate)
 
-        legacy_evidence = semantic_risk_probability(evidence_text)
-        legacy_context = semantic_risk_probability(context)
-        multilingual_evidence, semantic_backend = multilingual_semantic_score(
+        legacy_evidence, legacy_support = semantic_risk_with_support(
             evidence_text
         )
-        multilingual_context, _ = multilingual_semantic_score(context)
+        legacy_context, legacy_context_support = semantic_risk_with_support(
+            context
+        )
+        (
+            multilingual_evidence,
+            semantic_backend,
+            multilingual_support,
+        ) = multilingual_semantic_details(evidence_text)
+        (
+            multilingual_context,
+            _,
+            multilingual_context_support,
+        ) = multilingual_semantic_details(context)
 
         legacy_branch_score = (
             0.58 * legacy_evidence
@@ -432,10 +442,19 @@ def verify_candidates(candidate_groups, pages=None):
             or max_branch >= 0.82
         )
 
+        # n-gram 모델이 실제로 아는 패턴이 충분히 겹칠 때만 CONFIRMED로 승격한다.
+        # "서비스", "이벤트" 같은 일반 단어 몇 개만 겹쳐 두 branch가 동시에 높아지는
+        # 정상 문구는 open-set 쪽 판단에 남기고 의미 branch 단독 확정을 막는다.
+        semantic_support_ok = max(
+            legacy_support,
+            multilingual_support,
+        ) >= 0.45
+
         known_confirmed = (
             semantic_score >= semantic_floor
             and known_score >= known_floor
             and semantic_consensus
+            and semantic_support_ok
         )
 
         if technique in {"JAMO", "HOMOGLYPH"}:
@@ -473,6 +492,14 @@ def verify_candidates(candidate_groups, pages=None):
         item["semantic_score"] = round(semantic_score, 3)
         item["legacy_semantic_score"] = round(legacy_branch_score, 3)
         item["multilingual_score"] = round(multilingual_branch_score, 3)
+        item["legacy_semantic_support"] = round(legacy_support, 3)
+        item["legacy_context_support"] = round(legacy_context_support, 3)
+        item["multilingual_support"] = round(multilingual_support, 3)
+        item["multilingual_context_support"] = round(
+            multilingual_context_support,
+            3,
+        )
+        item["semantic_support_ok"] = semantic_support_ok
         item["semantic_agreement"] = round(semantic_agreement, 3)
         item["semantic_backend"] = semantic_backend
         item["structure_score"] = round(structure_score, 3)
@@ -491,6 +518,11 @@ def verify_candidates(candidate_groups, pages=None):
             f"legacy {legacy_branch_score:.2f}",
             f"다국어 {multilingual_branch_score:.2f}",
             f"의미 합의 {semantic_agreement:.2f}",
+            (
+                "의미 support "
+                f"legacy={legacy_support:.2f}, "
+                f"multi={multilingual_support:.2f}"
+            ),
             f"구조 강도 {structure_score:.2f}",
             f"known 결합 {known_score:.2f}",
             f"open-set {open_score:.2f}",
