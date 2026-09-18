@@ -205,6 +205,8 @@ async def main():
     )
     print("발견 고유 URL 수  :", crawl_result.get("known_page_count", 0))
     print("정밀검사 시도 수 :", crawl_result.get("attempted_count", 0))
+    print("브라우저 재시도   :", crawl_result.get("browser_retry_count", 0))
+    print("다운로드 skip     :", crawl_result.get("browser_download_skip_count", 0))
     print("HTTP fetch 수     :", crawl_result.get("discovery_fetch_count", 0))
     print("HTTP HTML 분석 수 :", crawl_result.get("discovery_html_count", 0))
     print("robots 분석 수    :", crawl_result.get("discovery_robots_count", 0))
