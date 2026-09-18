@@ -561,11 +561,18 @@ def verify_candidates(candidate_groups, pages=None):
             multilingual_support,
         ) >= 0.55
 
+        css_visible_duplicate = (
+            technique in {"TRANSPARENT", "OFFSCREEN"}
+            and visible_equivalent_present
+            and not strong_text_obfuscation
+        )
+
         known_confirmed = (
             semantic_score >= semantic_floor
             and known_score >= known_floor
             and semantic_consensus
             and semantic_support_ok
+            and not css_visible_duplicate
         )
 
         if technique in {"JAMO", "HOMOGLYPH"}:
@@ -623,6 +630,7 @@ def verify_candidates(candidate_groups, pages=None):
         item["visible_equivalent_present"] = visible_equivalent_present
         item["visible_equivalent_count"] = visible_equivalent_count
         item["strong_text_obfuscation"] = strong_text_obfuscation
+        item["css_visible_duplicate"] = css_visible_duplicate
         item["semantic_agreement"] = round(semantic_agreement, 3)
         item["semantic_backend"] = semantic_backend
         item["structure_score"] = round(structure_score, 3)
@@ -664,6 +672,10 @@ def verify_candidates(candidate_groups, pages=None):
             if strong_text_obfuscation:
                 reason_parts.append(
                     "zero-width/bidi 변조 신호가 있어 visible-state 억제를 우회"
+                )
+            elif technique in {"TRANSPARENT", "OFFSCREEN"}:
+                reason_parts.append(
+                    "정상 가시 상태의 동일 문구가 있어 CSS-only CONFIRMED 승격 억제"
                 )
         if repetition["multi_technique_count"] >= 2:
             if repetition["independent_technique_count"] >= 2:
