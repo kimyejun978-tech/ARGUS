@@ -55,6 +55,15 @@ def _is_download_navigation_error(exc) -> bool:
     return "download is starting" in str(exc).lower()
 
 
+def _is_navigation_timeout_error(exc) -> bool:
+    message = str(exc).lower()
+    return (
+        "page.goto" in message
+        and "timeout" in message
+        and "exceeded" in message
+    )
+
+
 def _canonicalize_pipeline_url(url: str) -> str:
     """기존 canonicalize + 명백한 일시성 challenge query 제거."""
 
@@ -159,6 +168,8 @@ async def crawl_site(
     discovery_sitemap_count = 0
     discovery_error_count = 0
     browser_retry_count = 0
+    browser_timeout_retry_count = 0
+    browser_partial_recovery_count = 0
     browser_download_skip_count = 0
     forced_cleanup = False
 
@@ -445,6 +456,8 @@ async def crawl_site(
             nonlocal page_limit_reached
             nonlocal interrupted_count
             nonlocal browser_retry_count
+            nonlocal browser_timeout_retry_count
+            nonlocal browser_partial_recovery_count
             nonlocal browser_download_skip_count
 
             while True:
@@ -531,57 +544,101 @@ async def crawl_site(
                             browser_download_skip_count += 1
                             continue
 
-                        if _is_transient_browser_error(exc):
-                            browser_retry_count += 1
-                            try:
-                                # HTTP→HTTPS 전환, JS redirect, ERR_ABORTED처럼
-                                # 브라우저가 자체적으로 다른 navigation을 이어가는
-                                # 경우가 있다. 짧게 안정화를 기다린 뒤 같은 URL을
-                                # 한 번만 재시도해 실제 누락을 줄인다.
-                                try:
-                                    await page.wait_for_load_state(
-                                        "domcontentloaded",
-                                        timeout=min(5000, timeout_ms),
-                                    )
-                                except Exception:
-                                    pass
+                        is_timeout = _is_navigation_timeout_error(exc)
+                        is_transient = _is_transient_browser_error(exc)
 
+                        if is_timeout or is_transient:
+                            browser_retry_count += 1
+                            if is_timeout:
+                                browser_timeout_retry_count += 1
+
+                            recovered_navigation = False
+
+                            # goto timeout은 응답 자체가 없는 경우뿐 아니라,
+                            # 문서가 이미 상당 부분 렌더링됐는데 DOMContentLoaded가
+                            # 늦어진 경우에도 발생한다. 먼저 현재 navigation이
+                            # 짧게 마무리되는지 확인해 불필요한 재요청을 피한다.
+                            try:
+                                await page.wait_for_load_state(
+                                    "domcontentloaded",
+                                    timeout=min(3000, timeout_ms),
+                                )
+                                recovered_navigation = True
+                            except Exception:
+                                pass
+
+                            if not recovered_navigation:
                                 remaining = time_remaining()
-                                retry_timeout_ms = timeout_ms
+                                retry_timeout_ms = min(15000, timeout_ms)
+
                                 if remaining is not None:
                                     if remaining <= 0:
                                         time_limit_reached = True
                                         stop_event.set()
                                         continue
+
                                     retry_timeout_ms = int(
                                         max(
                                             1000,
-                                            min(15000, remaining * 1000),
+                                            min(
+                                                retry_timeout_ms,
+                                                remaining * 1000,
+                                            ),
                                         )
                                     )
 
-                                await page.goto(
-                                    requested_url,
-                                    wait_until="domcontentloaded",
-                                    timeout=retry_timeout_ms,
-                                )
-                            except Exception as retry_exc:
-                                if _is_download_navigation_error(retry_exc):
-                                    browser_download_skip_count += 1
-                                    continue
-
-                                async with state_lock:
-                                    errors.append(
-                                        {
-                                            "url": requested_url,
-                                            "error": (
-                                                f"navigation retry failed: "
-                                                f"{retry_exc}"
-                                            ),
-                                            "worker": worker_id,
-                                        }
+                                try:
+                                    await page.goto(
+                                        requested_url,
+                                        wait_until="domcontentloaded",
+                                        timeout=retry_timeout_ms,
                                     )
-                                continue
+                                    recovered_navigation = True
+                                except Exception as retry_exc:
+                                    if _is_download_navigation_error(retry_exc):
+                                        browser_download_skip_count += 1
+                                        continue
+
+                                    # 두 번째 timeout이어도 body가 실제로 존재하고
+                                    # 같은 사이트 문서라면 정밀 5-pass를 시도한다.
+                                    # 완전히 skip하는 것보다 부분 로드 DOM까지 검사하는
+                                    # 편이 recall 우선 원칙에 맞다.
+                                    if _is_navigation_timeout_error(retry_exc):
+                                        try:
+                                            has_body = await page.evaluate(
+                                                "() => Boolean(document.body)"
+                                            )
+                                            partial_url = (
+                                                _canonicalize_pipeline_url(
+                                                    page.url
+                                                )
+                                            )
+                                            if (
+                                                has_body
+                                                and _is_same_site(
+                                                    partial_url,
+                                                    allowed_hosts,
+                                                    entry_scheme,
+                                                )
+                                            ):
+                                                recovered_navigation = True
+                                                browser_partial_recovery_count += 1
+                                        except Exception:
+                                            pass
+
+                                    if not recovered_navigation:
+                                        async with state_lock:
+                                            errors.append(
+                                                {
+                                                    "url": requested_url,
+                                                    "error": (
+                                                        "navigation retry failed: "
+                                                        f"{retry_exc}"
+                                                    ),
+                                                    "worker": worker_id,
+                                                }
+                                            )
+                                        continue
                         else:
                             async with state_lock:
                                 errors.append(
@@ -946,6 +1003,8 @@ async def crawl_site(
         "discovery_sitemap_count": discovery_sitemap_count,
         "discovery_error_count": discovery_error_count,
         "browser_retry_count": browser_retry_count,
+        "browser_timeout_retry_count": browser_timeout_retry_count,
+        "browser_partial_recovery_count": browser_partial_recovery_count,
         "browser_download_skip_count": browser_download_skip_count,
         "forced_cleanup": forced_cleanup,
         "watchdog_overrun_seconds": watchdog_overrun_seconds,
