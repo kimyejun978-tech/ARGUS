@@ -599,32 +599,32 @@ async def crawl_site(
                                         browser_download_skip_count += 1
                                         continue
 
-                                    # 두 번째 timeout이어도 body가 실제로 존재하고
-                                    # 같은 사이트 문서라면 정밀 5-pass를 시도한다.
-                                    # 완전히 skip하는 것보다 부분 로드 DOM까지 검사하는
-                                    # 편이 recall 우선 원칙에 맞다.
-                                    if _is_navigation_timeout_error(retry_exc):
-                                        try:
-                                            has_body = await page.evaluate(
-                                                "() => Boolean(document.body)"
+                                    # 재시도 자체가 timeout/ERR_ABORTED 등으로
+                                    # 끝나도 body가 실제로 존재하고 같은 사이트 문서라면
+                                    # 현재 DOM에 대해 정밀 5-pass를 시도한다. 완전히
+                                    # skip하는 것보다 부분 로드 DOM까지 검사하는 편이
+                                    # recall 우선 원칙에 맞다.
+                                    try:
+                                        has_body = await page.evaluate(
+                                            "() => Boolean(document.body)"
+                                        )
+                                        partial_url = (
+                                            _canonicalize_pipeline_url(
+                                                page.url
                                             )
-                                            partial_url = (
-                                                _canonicalize_pipeline_url(
-                                                    page.url
-                                                )
+                                        )
+                                        if (
+                                            has_body
+                                            and _is_same_site(
+                                                partial_url,
+                                                allowed_hosts,
+                                                entry_scheme,
                                             )
-                                            if (
-                                                has_body
-                                                and _is_same_site(
-                                                    partial_url,
-                                                    allowed_hosts,
-                                                    entry_scheme,
-                                                )
-                                            ):
-                                                recovered_navigation = True
-                                                browser_partial_recovery_count += 1
-                                        except Exception:
-                                            pass
+                                        ):
+                                            recovered_navigation = True
+                                            browser_partial_recovery_count += 1
+                                    except Exception:
+                                        pass
 
                                     if not recovered_navigation:
                                         async with state_lock:
