@@ -502,7 +502,10 @@ async def _collect_links(page):
 async def _wait_for_dom_quiet(page, quiet_ms=140, max_ms=900):
     """
     고정 sleep 대신 DOM 변경이 잠시 멈출 때까지 기다린다.
-    계속 변하는 페이지는 max_ms에서 강제로 빠져나온다.
+
+    동적 페이지가 MutationObserver microtask를 계속 발생시키면 setTimeout 기반
+    max timer 자체가 오랫동안 실행되지 못할 수 있다. observer callback에서도
+    performance.now() 기준 deadline을 직접 확인해 max_ms를 실제 상한으로 만든다.
     """
 
     try:
@@ -512,22 +515,50 @@ async def _wait_for_dom_quiet(page, quiet_ms=140, max_ms=900):
                 let finished = false;
                 let quietTimer = null;
                 let maxTimer = null;
+                let observer = null;
+                const startedAt = performance.now();
+
+                const deadlineReached = () =>
+                    performance.now() - startedAt >= maxMs;
 
                 const finish = () => {
                     if (finished) return;
                     finished = true;
                     if (quietTimer) clearTimeout(quietTimer);
                     if (maxTimer) clearTimeout(maxTimer);
-                    observer.disconnect();
+                    if (observer) observer.disconnect();
                     resolve(true);
                 };
 
                 const armQuietTimer = () => {
+                    if (finished) return;
+
+                    if (deadlineReached()) {
+                        finish();
+                        return;
+                    }
+
                     if (quietTimer) clearTimeout(quietTimer);
-                    quietTimer = setTimeout(finish, quietMs);
+
+                    const elapsed = performance.now() - startedAt;
+                    const remaining = Math.max(1, maxMs - elapsed);
+                    quietTimer = setTimeout(
+                        finish,
+                        Math.min(quietMs, remaining)
+                    );
                 };
 
-                const observer = new MutationObserver(armQuietTimer);
+                observer = new MutationObserver(() => {
+                    // MutationObserver callback은 microtask이므로, 타이머가 굶어도
+                    // 지속적인 DOM 변경 자체가 deadline 검사를 진행시킨다.
+                    if (deadlineReached()) {
+                        finish();
+                        return;
+                    }
+
+                    armQuietTimer();
+                });
+
                 const root = document.documentElement || document;
 
                 observer.observe(root, {
