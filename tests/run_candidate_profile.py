@@ -264,9 +264,11 @@ async def run(url, max_pages, max_seconds, workers, discovery_workers):
     detection_elapsed = time.perf_counter() - detection_started
 
     verifier_started = time.perf_counter()
+    verifier_profile = {}
     verified, rejected = verify_candidates(
         [groups[technique] for technique in TECHNIQUES],
         pages=pages,
+        profile=verifier_profile,
     )
     verifier_elapsed = time.perf_counter() - verifier_started
 
@@ -361,6 +363,34 @@ async def run(url, max_pages, max_seconds, workers, discovery_workers):
         )
 
     _print_crawler_performance(pages)
+
+    print("\n[Verifier 단계별 시간]")
+    verifier_stages = verifier_profile.get("stages", {})
+    verifier_labels = (
+        ("flatten", "후보 펼치기"),
+        ("dedupe", "후보 dedup"),
+        ("build_page_context", "페이지 context index"),
+        ("build_visible_index", "visible text index"),
+        ("build_repetition", "반복 통계 index"),
+        ("candidate_context", "후보 context 생성"),
+        ("semantic_models", "의미 모델"),
+        ("open_set", "open-set"),
+        ("candidate_loop", "후보 전체 loop"),
+    )
+    for key, label in verifier_labels:
+        if key in verifier_stages:
+            print(
+                f"  {label:<20} "
+                f"{verifier_stages.get(key, 0.0):>10.3f}초"
+            )
+    print(
+        "  cache:",
+        f"legacy={verifier_profile.get('legacy_cache_entries', 0)}",
+        f"multi={verifier_profile.get('multilingual_cache_entries', 0)}",
+        f"context={verifier_profile.get('context_cache_entries', 0)}",
+        "backend="
+        + ",".join(verifier_profile.get("semantic_backends", [])),
+    )
 
     print("\n[기법별 raw / unique / final]")
     for technique in TECHNIQUES:
