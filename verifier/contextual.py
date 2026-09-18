@@ -3,7 +3,7 @@ import unicodedata
 from collections import defaultdict
 
 from verifier.multilingual_semantic import multilingual_semantic_details
-from verifier.open_set import open_set_anomaly_score
+from verifier.open_set import BIDI_OR_ZERO_WIDTH, open_set_anomaly_score
 from verifier.semantic_model import semantic_risk_with_support
 
 
@@ -401,6 +401,10 @@ def verify_candidates(candidate_groups, pages=None):
         )
         evidence_text = _candidate_text(candidate)
         normalized_evidence = _normalize_text(evidence_text)
+        strong_text_obfuscation = any(
+            char in BIDI_OR_ZERO_WIDTH
+            for char in (evidence_text or "")
+        )
         visible_equivalent_count = len(
             visible_text_index.get(candidate.get("url", ""), {}).get(
                 normalized_evidence,
@@ -524,7 +528,10 @@ def verify_candidates(candidate_groups, pages=None):
             # 탭/슬라이드/반응형 UI의 상태 복제일 가능성이 높다. 이런 CSS 후보는
             # open-set 구조 점수만으로 SUSPICIOUS로 승격하지 않는다.
             open_suspicious = (
-                not visible_equivalent_present
+                (
+                    not visible_equivalent_present
+                    or strong_text_obfuscation
+                )
                 and (
                     (
                         open_score >= 0.66
@@ -565,6 +572,7 @@ def verify_candidates(candidate_groups, pages=None):
         item["semantic_support_ok"] = semantic_support_ok
         item["visible_equivalent_present"] = visible_equivalent_present
         item["visible_equivalent_count"] = visible_equivalent_count
+        item["strong_text_obfuscation"] = strong_text_obfuscation
         item["semantic_agreement"] = round(semantic_agreement, 3)
         item["semantic_backend"] = semantic_backend
         item["structure_score"] = round(structure_score, 3)
@@ -603,6 +611,10 @@ def verify_candidates(candidate_groups, pages=None):
             reason_parts.append(
                 f"동일 텍스트가 정상 화면 상태에서 {visible_equivalent_count}개 위치에 관측"
             )
+            if strong_text_obfuscation:
+                reason_parts.append(
+                    "zero-width/bidi 변조 신호가 있어 visible-state 억제를 우회"
+                )
         if repetition["multi_technique_count"] >= 2:
             if repetition["independent_technique_count"] >= 2:
                 reason_parts.append(
