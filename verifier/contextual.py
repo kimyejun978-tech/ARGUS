@@ -141,6 +141,7 @@ def _build_visible_text_index(pages):
 def _build_page_context(pages):
     page_titles = {}
     page_elements = defaultdict(list)
+    page_descendants = defaultdict(lambda: defaultdict(list))
 
     for page in pages or []:
         url = page.get("url", "")
@@ -156,17 +157,30 @@ def _build_page_context(pages):
                 continue
 
             seen.add(key)
-            page_elements[url].append(
-                {
-                    "selector": selector,
-                    "text": text,
-                }
-            )
+            item = {
+                "selector": selector,
+                "text": text,
+            }
+            page_elements[url].append(item)
 
-    return page_titles, page_elements
+            # 기존 _context_text는 후보마다 페이지 전체 element 목록을 선형 검색했다.
+            # 한 번만 ancestor prefix index를 만들어 같은 의미의 검색을 O(1)에 가깝게
+            # 가져온다. 입력 순서를 그대로 append하므로 주변 텍스트 선택 순서도 같다.
+            parent = _selector_parent(selector)
+            while parent:
+                page_descendants[url][parent].append(item)
+                parent = _selector_parent(parent)
+
+    return page_titles, page_elements, page_descendants
 
 
-def _context_text(candidate, page_titles, page_elements, max_chars=900):
+def _context_text(
+    candidate,
+    page_titles,
+    page_elements,
+    page_descendants=None,
+    max_chars=900,
+):
     url = candidate.get("url", "")
     selector = candidate.get("location", "")
     own = _normalize_text(_candidate_text(candidate))
@@ -182,13 +196,21 @@ def _context_text(candidate, page_titles, page_elements, max_chars=900):
 
         count = 0
 
-        for element in page_elements.get(url, []):
+        if page_descendants is None:
+            source = page_elements.get(url, [])
+        else:
+            source = page_descendants.get(url, {}).get(prefix, [])
+
+        for element in source:
             other_selector = element["selector"]
             other_text = element["text"]
 
             if other_selector == selector:
                 continue
-            if not other_selector.startswith(prefix + " > "):
+            if (
+                page_descendants is None
+                and not other_selector.startswith(prefix + " > ")
+            ):
                 continue
             if other_text in seen_text:
                 continue
@@ -378,7 +400,11 @@ def verify_candidates(candidate_groups, pages=None):
     ]
     candidates = _dedupe_candidates(raw_candidates)
 
-    page_titles, page_elements = _build_page_context(pages or [])
+    (
+        page_titles,
+        page_elements,
+        page_descendants,
+    ) = _build_page_context(pages or [])
     visible_text_index = _build_visible_text_index(pages or [])
     page_urls = {
         page.get("url")
@@ -391,14 +417,42 @@ def verify_candidates(candidate_groups, pages=None):
     verified = []
     rejected = []
 
+    # 같은 텍스트/문맥이 CSS detector 중첩이나 반복 UI 때문에 수백~수천 번
+    # 재사용된다. 의미 모델 결과는 순수 함수이므로 per-run cache로 중복 계산을 제거한다.
+    legacy_semantic_cache = {}
+    multilingual_semantic_cache = {}
+    context_cache = {}
+
+    def legacy_details(text):
+        key = text or ""
+        if key not in legacy_semantic_cache:
+            legacy_semantic_cache[key] = semantic_risk_with_support(key)
+        return legacy_semantic_cache[key]
+
+    def multilingual_details(text):
+        key = text or ""
+        if key not in multilingual_semantic_cache:
+            multilingual_semantic_cache[key] = multilingual_semantic_details(key)
+        return multilingual_semantic_cache[key]
+
     for candidate in candidates:
         item = dict(candidate)
 
-        context = _context_text(
-            candidate,
-            page_titles,
-            page_elements,
+        context_key = (
+            candidate.get("url", ""),
+            candidate.get("location", ""),
+            _candidate_text(candidate),
         )
+        context = context_cache.get(context_key)
+
+        if context is None:
+            context = _context_text(
+                candidate,
+                page_titles,
+                page_elements,
+                page_descendants,
+            )
+            context_cache[context_key] = context
         evidence_text = _candidate_text(candidate)
         normalized_evidence = _normalize_text(evidence_text)
         strong_text_obfuscation = any(
@@ -413,22 +467,18 @@ def verify_candidates(candidate_groups, pages=None):
         )
         visible_equivalent_present = visible_equivalent_count > 0
 
-        legacy_evidence, legacy_support = semantic_risk_with_support(
-            evidence_text
-        )
-        legacy_context, legacy_context_support = semantic_risk_with_support(
-            context
-        )
+        legacy_evidence, legacy_support = legacy_details(evidence_text)
+        legacy_context, legacy_context_support = legacy_details(context)
         (
             multilingual_evidence,
             semantic_backend,
             multilingual_support,
-        ) = multilingual_semantic_details(evidence_text)
+        ) = multilingual_details(evidence_text)
         (
             multilingual_context,
             _,
             multilingual_context_support,
-        ) = multilingual_semantic_details(context)
+        ) = multilingual_details(context)
 
         legacy_branch_score = (
             0.58 * legacy_evidence
