@@ -510,6 +510,9 @@ async def crawl_site(
                             max(1000, min(30000, remaining * 1000))
                         )
 
+                    page_work_started = time.perf_counter()
+                    navigation_started = time.perf_counter()
+
                     try:
                         await page.set_viewport_size(
                             {"width": 1280, "height": 720}
@@ -588,6 +591,10 @@ async def crawl_site(
                                     }
                                 )
                             continue
+
+                    navigation_elapsed = (
+                        time.perf_counter() - navigation_started
+                    )
 
                     final_url = _canonicalize_pipeline_url(page.url)
                     final_parsed = urlsplit(final_url)
@@ -699,6 +706,11 @@ async def crawl_site(
                             continue
 
                     page_result["url"] = final_url
+                    page_timings = page_result.setdefault("timings", {})
+                    page_timings["navigation"] = navigation_elapsed
+                    page_timings["page_total"] = (
+                        time.perf_counter() - page_work_started
+                    )
                     links = page_result.pop("links", set())
 
                     # 렌더링된 DOM에서 실제로 보인 링크는 최우선으로 승격한다.
