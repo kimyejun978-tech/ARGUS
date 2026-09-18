@@ -90,6 +90,54 @@ def _selector_parent(selector):
     return selector.rsplit(" > ", 1)[0]
 
 
+def _is_visibly_rendered(element):
+    style = element.get("style") or {}
+
+    try:
+        font_size = float(str(style.get("fontSize", "16px")).replace("px", ""))
+    except (TypeError, ValueError):
+        font_size = 16.0
+
+    try:
+        opacity = float(element.get("effectiveOpacity", 1.0))
+    except (TypeError, ValueError):
+        opacity = 1.0
+
+    try:
+        text_alpha = float(element.get("textColorAlpha", 1.0))
+    except (TypeError, ValueError):
+        text_alpha = 1.0
+
+    return (
+        not element.get("displayNoneSource")
+        and opacity > 0.001
+        and text_alpha > 0.001
+        and not element.get("sameTextBackground")
+        and style.get("visibility") not in {"hidden", "collapse"}
+        and font_size > 1.0
+        and element.get("inViewport") is True
+    )
+
+
+def _build_visible_text_index(pages):
+    visible = defaultdict(lambda: defaultdict(set))
+
+    for page in pages or []:
+        url = page.get("url", "")
+
+        for element in page.get("elements", []):
+            if not _is_visibly_rendered(element):
+                continue
+
+            text = _normalize_text(element.get("text", ""))
+            selector = element.get("selector", "")
+
+            if text and selector:
+                visible[url][text].add(selector)
+
+    return visible
+
+
 def _build_page_context(pages):
     page_titles = {}
     page_elements = defaultdict(list)
@@ -331,6 +379,7 @@ def verify_candidates(candidate_groups, pages=None):
     candidates = _dedupe_candidates(raw_candidates)
 
     page_titles, page_elements = _build_page_context(pages or [])
+    visible_text_index = _build_visible_text_index(pages or [])
     page_urls = {
         page.get("url")
         for page in (pages or [])
@@ -351,6 +400,14 @@ def verify_candidates(candidate_groups, pages=None):
             page_elements,
         )
         evidence_text = _candidate_text(candidate)
+        normalized_evidence = _normalize_text(evidence_text)
+        visible_equivalent_count = len(
+            visible_text_index.get(candidate.get("url", ""), {}).get(
+                normalized_evidence,
+                set(),
+            )
+        )
+        visible_equivalent_present = visible_equivalent_count > 0
 
         legacy_evidence, legacy_support = semantic_risk_with_support(
             evidence_text
@@ -448,7 +505,7 @@ def verify_candidates(candidate_groups, pages=None):
         semantic_support_ok = max(
             legacy_support,
             multilingual_support,
-        ) >= 0.45
+        ) >= 0.55
 
         known_confirmed = (
             semantic_score >= semantic_floor
@@ -463,17 +520,23 @@ def verify_candidates(candidate_groups, pages=None):
                 and repeat_count <= 2
             )
         else:
+            # 동일 텍스트가 어떤 scan pass에서 정상적으로 화면 안에 렌더링됐다면
+            # 탭/슬라이드/반응형 UI의 상태 복제일 가능성이 높다. 이런 CSS 후보는
+            # open-set 구조 점수만으로 SUSPICIOUS로 승격하지 않는다.
             open_suspicious = (
-                (
-                    open_score >= 0.66
-                    and structure_score >= 0.60
-                    and repeat_count <= 2
-                )
-                or (
-                    open_score >= 0.64
-                    and repetition["independent_technique_count"] >= 2
-                    and structure_score >= 0.60
-                    and repeat_count <= 3
+                not visible_equivalent_present
+                and (
+                    (
+                        open_score >= 0.66
+                        and structure_score >= 0.60
+                        and repeat_count <= 2
+                    )
+                    or (
+                        open_score >= 0.64
+                        and repetition["independent_technique_count"] >= 2
+                        and structure_score >= 0.60
+                        and repeat_count <= 3
+                    )
                 )
             )
 
@@ -500,6 +563,8 @@ def verify_candidates(candidate_groups, pages=None):
             3,
         )
         item["semantic_support_ok"] = semantic_support_ok
+        item["visible_equivalent_present"] = visible_equivalent_present
+        item["visible_equivalent_count"] = visible_equivalent_count
         item["semantic_agreement"] = round(semantic_agreement, 3)
         item["semantic_backend"] = semantic_backend
         item["structure_score"] = round(structure_score, 3)
@@ -534,6 +599,10 @@ def verify_candidates(candidate_groups, pages=None):
             )
         if ui_penalty:
             reason_parts.append("공통 UI 문맥 패널티 적용")
+        if visible_equivalent_present:
+            reason_parts.append(
+                f"동일 텍스트가 정상 화면 상태에서 {visible_equivalent_count}개 위치에 관측"
+            )
         if repetition["multi_technique_count"] >= 2:
             if repetition["independent_technique_count"] >= 2:
                 reason_parts.append(
