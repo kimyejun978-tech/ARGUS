@@ -1,4 +1,5 @@
 import re
+import time
 import unicodedata
 from collections import defaultdict
 
@@ -376,7 +377,7 @@ def _novelty_bonus(repeat_count):
     return 0.0
 
 
-def verify_candidates(candidate_groups, pages=None):
+def verify_candidates(candidate_groups, pages=None, profile=None):
     """
     Contextual Verifier v3.
 
@@ -393,19 +394,48 @@ def verify_candidates(candidate_groups, pages=None):
     강제 정답 처리하지 않아야 모의 사이트가 의미/open-set 회귀검사 역할을 한다.
     """
 
+    profile_enabled = profile is not None
+    if profile_enabled:
+        profile.clear()
+        profile["started"] = time.perf_counter()
+        profile["stages"] = defaultdict(float)
+        profile["semantic_backends"] = set()
+
+    stage_started = time.perf_counter()
     raw_candidates = [
         candidate
         for group in candidate_groups
         for candidate in group
     ]
-    candidates = _dedupe_candidates(raw_candidates)
+    if profile_enabled:
+        profile["stages"]["flatten"] += time.perf_counter() - stage_started
+        profile["raw_candidate_count"] = len(raw_candidates)
 
+    stage_started = time.perf_counter()
+    candidates = _dedupe_candidates(raw_candidates)
+    if profile_enabled:
+        profile["stages"]["dedupe"] += time.perf_counter() - stage_started
+        profile["dedup_candidate_count"] = len(candidates)
+
+    stage_started = time.perf_counter()
     (
         page_titles,
         page_elements,
         page_descendants,
     ) = _build_page_context(pages or [])
+    if profile_enabled:
+        profile["stages"]["build_page_context"] += (
+            time.perf_counter() - stage_started
+        )
+
+    stage_started = time.perf_counter()
     visible_text_index = _build_visible_text_index(pages or [])
+    if profile_enabled:
+        profile["stages"]["build_visible_index"] += (
+            time.perf_counter() - stage_started
+        )
+
+    stage_started = time.perf_counter()
     page_urls = {
         page.get("url")
         for page in (pages or [])
@@ -413,6 +443,10 @@ def verify_candidates(candidate_groups, pages=None):
     }
     total_pages = max(1, len(page_urls))
     repetition_for = _repetition_stats(candidates, total_pages)
+    if profile_enabled:
+        profile["stages"]["build_repetition"] += (
+            time.perf_counter() - stage_started
+        )
 
     verified = []
     rejected = []
@@ -433,11 +467,17 @@ def verify_candidates(candidate_groups, pages=None):
         key = text or ""
         if key not in multilingual_semantic_cache:
             multilingual_semantic_cache[key] = multilingual_semantic_details(key)
-        return multilingual_semantic_cache[key]
+        result = multilingual_semantic_cache[key]
+        if profile_enabled and len(result) >= 2:
+            profile["semantic_backends"].add(str(result[1]))
+        return result
+
+    loop_started = time.perf_counter()
 
     for candidate in candidates:
         item = dict(candidate)
 
+        context_started = time.perf_counter() if profile_enabled else None
         context_key = (
             candidate.get("url", ""),
             candidate.get("location", ""),
@@ -453,6 +493,11 @@ def verify_candidates(candidate_groups, pages=None):
                 page_descendants,
             )
             context_cache[context_key] = context
+        if profile_enabled:
+            profile["stages"]["candidate_context"] += (
+                time.perf_counter() - context_started
+            )
+
         evidence_text = _candidate_text(candidate)
         normalized_evidence = _normalize_text(evidence_text)
         strong_text_obfuscation = any(
@@ -467,6 +512,7 @@ def verify_candidates(candidate_groups, pages=None):
         )
         visible_equivalent_present = visible_equivalent_count > 0
 
+        semantic_started = time.perf_counter() if profile_enabled else None
         legacy_evidence, legacy_support = legacy_details(evidence_text)
         legacy_context, legacy_context_support = legacy_details(context)
         (
@@ -479,6 +525,10 @@ def verify_candidates(candidate_groups, pages=None):
             _,
             multilingual_context_support,
         ) = multilingual_details(context)
+        if profile_enabled:
+            profile["stages"]["semantic_models"] += (
+                time.perf_counter() - semantic_started
+            )
 
         legacy_branch_score = (
             0.58 * legacy_evidence
@@ -527,6 +577,7 @@ def verify_candidates(candidate_groups, pages=None):
         )
         known_score = max(0.0, min(1.0, known_score))
 
+        open_started = time.perf_counter() if profile_enabled else None
         open_score, open_reasons = open_set_anomaly_score(
             candidate,
             structure_score=structure_score,
@@ -535,6 +586,10 @@ def verify_candidates(candidate_groups, pages=None):
             multi_technique_count=repetition["independent_technique_count"],
             total_pages=total_pages,
         )
+        if profile_enabled:
+            profile["stages"]["open_set"] += (
+                time.perf_counter() - open_started
+            )
 
         technique = candidate.get("technique")
 
@@ -704,5 +759,16 @@ def verify_candidates(candidate_groups, pages=None):
             prefix = "의미 및 open-set 결합 검증에서 정상 UI 가능성이 더 높음"
             item["verification_reason"] = prefix + "; " + ", ".join(reason_parts)
             rejected.append(item)
+
+    if profile_enabled:
+        profile["stages"]["candidate_loop"] += time.perf_counter() - loop_started
+        profile["legacy_cache_entries"] = len(legacy_semantic_cache)
+        profile["multilingual_cache_entries"] = len(multilingual_semantic_cache)
+        profile["context_cache_entries"] = len(context_cache)
+        profile["verified_count"] = len(verified)
+        profile["rejected_count"] = len(rejected)
+        profile["total"] = time.perf_counter() - profile["started"]
+        profile["stages"] = dict(profile["stages"])
+        profile["semantic_backends"] = sorted(profile["semantic_backends"])
 
     return verified, rejected
