@@ -147,15 +147,22 @@ class _OptionalSentenceTransformerBackend:
 _OPTIONAL_BACKEND = _OptionalSentenceTransformerBackend()
 
 
-def multilingual_semantic_score(text):
-    """(score, backend_name)을 반환한다."""
+def multilingual_semantic_details(text):
+    """(score, backend_name, semantic_support)을 반환한다."""
 
     embedding_score = _OPTIONAL_BACKEND.score(text)
 
     if embedding_score is not None:
-        return embedding_score, _OPTIONAL_BACKEND.backend_name
+        # embedding backend는 고정 vocabulary overlap 개념이 없으므로
+        # 모델이 실제로 로드되어 점수를 냈다면 support를 충분한 것으로 본다.
+        return embedding_score, _OPTIONAL_BACKEND.backend_name, 1.0
 
-    return (
-        _FALLBACK_MODEL.predict_proba(text or ""),
-        _OPTIONAL_BACKEND.backend_name,
-    )
+    score, support = _FALLBACK_MODEL.predict_details(text or "")
+    return score, _OPTIONAL_BACKEND.backend_name, support
+
+
+def multilingual_semantic_score(text):
+    """기존 호출부 호환용 (score, backend_name) API."""
+
+    score, backend_name, _ = multilingual_semantic_details(text)
+    return score, backend_name
