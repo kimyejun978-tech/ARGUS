@@ -207,10 +207,43 @@ DOM_SCAN_SCRIPT = r"""
         }
 
         const style = getStyle(element);
-        const rect = element.getBoundingClientRect();
         const effective = getEffectiveInfo(element);
         const backgroundColor = findBackgroundColor(element);
         const textColor = style.color;
+        const textColorAlpha = getColorAlpha(textColor);
+        const sameTextBackground =
+            backgroundColor !== null && textColor === backgroundColor;
+        const fontSize = Number.parseFloat(style.fontSize);
+        const potentiallyVisible =
+            !effective.displayNoneSource &&
+            effective.effectiveOpacity > 0.001 &&
+            textColorAlpha > 0.001 &&
+            !sameTextBackground &&
+            style.visibility !== "hidden" &&
+            style.visibility !== "collapse" &&
+            (Number.isNaN(fontSize) || fontSize > 1);
+        const positionedForOffscreen =
+            style.position === "absolute" || style.position === "fixed";
+
+        // getBoundingClientRect()는 강제 layout을 유발할 수 있어 대형 DOM에서
+        // 가장 비싼 호출 중 하나다. 화면에 보일 수 없는 정적 요소는 verifier의
+        // visible-equivalent 판정에도 쓰이지 않고 OFFSCREEN 좌표 판정 대상도 아니다.
+        // 반면 visible 가능 요소와 absolute/fixed 요소는 기존과 동일하게 실제 rect를
+        // 수집해 탐지 정확도를 유지한다.
+        let rect = {
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0,
+            bottom: 0,
+            right: 0,
+            top: 0,
+            left: 0
+        };
+
+        if (potentiallyVisible || positionedForOffscreen) {
+            rect = element.getBoundingClientRect();
+        }
 
         result.push({
             tag: element.tagName.toLowerCase(),
@@ -230,9 +263,8 @@ DOM_SCAN_SCRIPT = r"""
             effectiveOpacity: effective.effectiveOpacity,
             opacitySource: effective.opacitySource,
             displayNoneSource: effective.displayNoneSource,
-            textColorAlpha: getColorAlpha(textColor),
-            sameTextBackground:
-                backgroundColor !== null && textColor === backgroundColor,
+            textColorAlpha,
+            sameTextBackground,
             rect: {
                 x: rect.x,
                 y: rect.y,
@@ -240,6 +272,7 @@ DOM_SCAN_SCRIPT = r"""
                 height: rect.height
             },
             inViewport:
+                potentiallyVisible &&
                 rect.width > 0 &&
                 rect.height > 0 &&
                 rect.bottom > 0 &&
