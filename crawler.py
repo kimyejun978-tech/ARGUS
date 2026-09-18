@@ -8,41 +8,71 @@ from playwright.async_api import async_playwright
 
 DOM_SCAN_SCRIPT = r"""
 () => {
+    const styleCache = new WeakMap();
+    const selectorCache = new WeakMap();
+    const effectiveCache = new WeakMap();
+    const backgroundCache = new WeakMap();
+
+    function getStyle(element) {
+        let style = styleCache.get(element);
+
+        if (!style) {
+            style = window.getComputedStyle(element);
+            styleCache.set(element, style);
+        }
+
+        return style;
+    }
+
     function makeSelector(element) {
         if (!element || element.nodeType !== 1) {
             return "";
         }
 
-        const parts = [];
-        let current = element;
+        const cached = selectorCache.get(element);
+        if (cached !== undefined) {
+            return cached;
+        }
 
-        while (current && current.nodeType === 1) {
-            let part = current.tagName.toLowerCase();
+        let part = element.tagName.toLowerCase();
+        let selector = part;
 
-            if (current.id) {
-                part += "#" + CSS.escape(current.id);
-                parts.unshift(part);
-                break;
-            }
+        if (element.id) {
+            selector = part + "#" + CSS.escape(element.id);
+            selectorCache.set(element, selector);
+            return selector;
+        }
 
-            const parent = current.parentElement;
+        const parent = element.parentElement;
 
-            if (parent) {
-                const sameTags = Array.from(parent.children).filter(
-                    child => child.tagName === current.tagName
-                );
+        if (parent) {
+            let sameTagCount = 0;
+            let sameTagIndex = 0;
 
-                if (sameTags.length > 1) {
-                    const index = sameTags.indexOf(current) + 1;
-                    part += `:nth-of-type(${index})`;
+            for (const child of parent.children) {
+                if (child.tagName !== element.tagName) {
+                    continue;
+                }
+
+                sameTagCount += 1;
+
+                if (child === element) {
+                    sameTagIndex = sameTagCount;
                 }
             }
 
-            parts.unshift(part);
-            current = current.parentElement;
+            if (sameTagCount > 1) {
+                part += `:nth-of-type(${sameTagIndex})`;
+            }
+
+            const parentSelector = makeSelector(parent);
+            selector = parentSelector
+                ? parentSelector + " > " + part
+                : part;
         }
 
-        return parts.join(" > ");
+        selectorCache.set(element, selector);
+        return selector;
     }
 
     function getColorAlpha(color) {
@@ -66,52 +96,80 @@ DOM_SCAN_SCRIPT = r"""
     }
 
     function getEffectiveInfo(element) {
+        const cached = effectiveCache.get(element);
+        if (cached) {
+            return cached;
+        }
+
+        const chain = [];
         let current = element;
-        let effectiveOpacity = 1;
-        let opacitySource = null;
-        let displayNoneSource = null;
 
-        while (current) {
-            const style = window.getComputedStyle(current);
-            const opacity = Number(style.opacity);
-
-            if (!Number.isNaN(opacity)) {
-                effectiveOpacity *= opacity;
-
-                if (opacity === 0 && opacitySource === null) {
-                    opacitySource = makeSelector(current);
-                }
-            }
-
-            if (style.display === "none" && displayNoneSource === null) {
-                displayNoneSource = makeSelector(current);
-            }
-
+        while (current && !effectiveCache.has(current)) {
+            chain.push(current);
             current = current.parentElement;
         }
 
-        return {
-            effectiveOpacity,
-            opacitySource,
-            displayNoneSource
-        };
+        let info = current
+            ? effectiveCache.get(current)
+            : {
+                effectiveOpacity: 1,
+                opacitySource: null,
+                displayNoneSource: null
+            };
+
+        for (let index = chain.length - 1; index >= 0; index -= 1) {
+            const node = chain[index];
+            const style = getStyle(node);
+            const opacity = Number(style.opacity);
+            const localOpacity = Number.isNaN(opacity) ? 1 : opacity;
+
+            info = {
+                effectiveOpacity: info.effectiveOpacity * localOpacity,
+                opacitySource:
+                    opacity === 0
+                        ? makeSelector(node)
+                        : info.opacitySource,
+                displayNoneSource:
+                    style.display === "none"
+                        ? makeSelector(node)
+                        : info.displayNoneSource
+            };
+
+            effectiveCache.set(node, info);
+        }
+
+        return effectiveCache.get(element);
     }
 
     function findBackgroundColor(element) {
+        if (backgroundCache.has(element)) {
+            return backgroundCache.get(element);
+        }
+
+        const chain = [];
         let current = element;
 
-        while (current) {
-            const style = window.getComputedStyle(current);
-            const background = style.backgroundColor;
-
-            if (getColorAlpha(background) > 0) {
-                return background;
-            }
-
+        while (current && !backgroundCache.has(current)) {
+            chain.push(current);
             current = current.parentElement;
         }
 
-        return null;
+        let background = current
+            ? backgroundCache.get(current)
+            : null;
+
+        for (let index = chain.length - 1; index >= 0; index -= 1) {
+            const node = chain[index];
+            const ownBackground = getStyle(node).backgroundColor;
+
+            if (getColorAlpha(ownBackground) > 0) {
+                background = ownBackground;
+            }
+
+            backgroundCache.set(node, background);
+        }
+
+        return backgroundCache.get(element);
     }
 
     const result = [];
@@ -131,9 +189,15 @@ DOM_SCAN_SCRIPT = r"""
             continue;
         }
 
-        const directText = Array.from(element.childNodes)
-            .filter(node => node.nodeType === Node.TEXT_NODE)
-            .map(node => node.textContent || "")
+        const directTextParts = [];
+
+        for (const node of element.childNodes) {
+            if (node.nodeType === Node.TEXT_NODE) {
+                directTextParts.push(node.textContent || "");
+            }
+        }
+
+        const directText = directTextParts
             .join(" ")
             .replace(/\s+/g, " ")
             .trim();
@@ -142,7 +206,7 @@ DOM_SCAN_SCRIPT = r"""
             continue;
         }
 
-        const style = window.getComputedStyle(element);
+        const style = getStyle(element);
         const rect = element.getBoundingClientRect();
         const effective = getEffectiveInfo(element);
         const backgroundColor = findBackgroundColor(element);
