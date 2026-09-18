@@ -322,7 +322,13 @@ def start_server(site_root):
     return server, thread
 
 
-async def run(seed, per_technique, max_seconds):
+async def run(
+    seed,
+    per_technique,
+    max_seconds,
+    workers=4,
+    discovery_workers=8,
+):
     with tempfile.TemporaryDirectory(prefix="argus_fuzz_") as temp:
         root = Path(temp)
         truth = build_site(root, seed, per_technique)
@@ -345,10 +351,18 @@ async def run(seed, per_technique, max_seconds):
             print("ambiguous probes   :", probe_count)
             print("normal controls    :", len(truth["benign_controls"]))
             print("pages expected     :", truth["expected_min_pages"])
+            print("browser workers    :", workers)
+            print("discovery workers  :", discovery_workers)
             print()
 
             started = time.perf_counter()
-            crawl = await crawl_site(entry, max_pages=max(80, per_technique+10), max_seconds=max_seconds, worker_count=4, discovery_worker_count=8)
+            crawl = await crawl_site(
+                entry,
+                max_pages=max(80, per_technique + 10),
+                max_seconds=max_seconds,
+                worker_count=workers,
+                discovery_worker_count=discovery_workers,
+            )
             elapsed = time.perf_counter() - started
 
             transparent, offscreen, jamo, homoglyph = [], [], [], []
@@ -559,11 +573,25 @@ def main():
     parser.add_argument("--seed", type=int, default=20260917)
     parser.add_argument("--per-technique", type=int, default=24, help="각 탐지 기법마다 생성할 positive 수")
     parser.add_argument("--max-seconds", type=float, default=240.0)
+    parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--discovery-workers", type=int, default=8)
     parser.add_argument("--strict", action="store_true", help="ARGUS 내부 스트레스 기준 미달 시 exit code 1")
     args = parser.parse_args()
     if args.per_technique < 6:
         parser.error("--per-technique은 최소 6이어야 합니다")
-    result = asyncio.run(run(args.seed, args.per_technique, args.max_seconds))
+    if args.workers < 1:
+        parser.error("--workers는 1 이상이어야 합니다")
+    if args.discovery_workers < 0:
+        parser.error("--discovery-workers는 0 이상이어야 합니다")
+    result = asyncio.run(
+        run(
+            args.seed,
+            args.per_technique,
+            args.max_seconds,
+            workers=args.workers,
+            discovery_workers=args.discovery_workers,
+        )
+    )
     # 공모전 공식 기준이 아니라 ARGUS 자체 회귀 기준.
     if args.strict and (
         result["page_count"] < result["min_pages"]
