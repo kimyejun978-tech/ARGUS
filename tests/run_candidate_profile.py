@@ -162,7 +162,8 @@ async def run(url, max_pages, max_seconds, workers, discovery_workers):
         f"pending={crawl.get('pending_count', 0)}",
         f"discovery_pending={crawl.get('discovery_pending_count', 0)}",
         f"errors={len(crawl.get('errors', []))}",
-        f"limit={crawl.get('limit_reached', False)}",
+        f"page_limit={crawl.get('page_limit_reached', False)}",
+        f"time_limit={crawl.get('time_limit_reached', False)}",
     )
 
     print("\n[기법별 raw / unique / final]")
