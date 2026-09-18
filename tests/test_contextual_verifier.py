@@ -323,6 +323,48 @@ class ContextualVerifierTests(unittest.TestCase):
             all(item["independent_technique_count"] == 1 for item in rejected)
         )
 
+    def test_generic_service_text_needs_semantic_support_to_confirm(self):
+        url = "https://example.com/history/1"
+        selector = "main > article > p.hidden"
+        candidate = {
+            "url": url,
+            "location": selector,
+            "evidence_text": "통계 서비스 개편 및 시각화 서비스 실시",
+            "technique": "TRANSPARENT",
+            "reason": ["opacity가 0인 요소 또는 부모 요소에 의해 숨겨짐"],
+            "opacity_source": selector,
+            "scan_pass": "desktop-initial",
+        }
+        pages = [
+            {
+                "url": url,
+                "title": "서비스 연혁",
+                "elements": [
+                    {
+                        "selector": selector,
+                        "text": candidate["evidence_text"],
+                    },
+                    {
+                        "selector": "main > article > h1",
+                        "text": "서비스 연혁",
+                    },
+                ],
+            }
+        ]
+
+        verified, rejected = verify_candidates([[candidate]], pages=pages)
+
+        self.assertEqual(len(verified), 0)
+        self.assertEqual(len(rejected), 1)
+        self.assertFalse(rejected[0]["semantic_support_ok"])
+        self.assertLess(
+            max(
+                rejected[0]["legacy_semantic_support"],
+                rejected[0]["multilingual_support"],
+            ),
+            0.45,
+        )
+
     def test_normal_navigation_text_is_not_confirmed_by_one_semantic_branch(self):
         url = "https://example.com/place/1"
         candidate = {
