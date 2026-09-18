@@ -278,7 +278,7 @@ class ContextualVerifierTests(unittest.TestCase):
         urls = [f"https://example.com/page-{index}" for index in range(8)]
         target_url = urls[0]
         selector = "main > section > p.hidden"
-        text = "ordinary hidden panel"
+        text = "ordinary panel label"
         transparent = {
             "url": target_url,
             "location": selector,
