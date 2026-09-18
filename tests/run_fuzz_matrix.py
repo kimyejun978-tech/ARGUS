@@ -25,7 +25,16 @@ def seed_sequence(base_seed, runs, step):
     return [base_seed + index * step for index in range(runs)]
 
 
-async def run_matrix(base_seed, runs, step, per_technique, max_seconds, show_failures):
+async def run_matrix(
+    base_seed,
+    runs,
+    step,
+    per_technique,
+    max_seconds,
+    show_failures,
+    workers=4,
+    discovery_workers=8,
+):
     seeds = seed_sequence(base_seed, runs, step)
     results = []
     started = time.perf_counter()
@@ -38,13 +47,21 @@ async def run_matrix(base_seed, runs, step, per_technique, max_seconds, show_fai
     print("seed step          :", step)
     print("per technique      :", per_technique)
     print("generated target   :", runs * per_technique * 4)
+    print("browser workers    :", workers)
+    print("discovery workers  :", discovery_workers)
     print()
 
     for index, seed in enumerate(seeds, start=1):
         capture = io.StringIO()
         try:
             with redirect_stdout(capture), redirect_stderr(capture):
-                result = await run(seed, per_technique, max_seconds)
+                result = await run(
+                    seed,
+                    per_technique,
+                    max_seconds,
+                    workers=workers,
+                    discovery_workers=discovery_workers,
+                )
         except Exception as exc:
             print(f"[{index:02d}/{runs:02d}] seed={seed} ERROR {type(exc).__name__}: {exc}")
             if show_failures:
@@ -178,6 +195,8 @@ def main():
     parser.add_argument("--step", type=int, default=7919)
     parser.add_argument("--per-technique", type=int, default=24)
     parser.add_argument("--max-seconds", type=float, default=240.0)
+    parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--discovery-workers", type=int, default=8)
     parser.add_argument(
         "--show-failures",
         action="store_true",
@@ -194,6 +213,10 @@ def main():
         parser.error("--runs는 1 이상이어야 합니다")
     if args.per_technique < 6:
         parser.error("--per-technique은 최소 6이어야 합니다")
+    if args.workers < 1:
+        parser.error("--workers는 1 이상이어야 합니다")
+    if args.discovery_workers < 0:
+        parser.error("--discovery-workers는 0 이상이어야 합니다")
 
     result = asyncio.run(
         run_matrix(
@@ -203,6 +226,8 @@ def main():
             args.per_technique,
             args.max_seconds,
             args.show_failures,
+            workers=args.workers,
+            discovery_workers=args.discovery_workers,
         )
     )
 
