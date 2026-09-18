@@ -181,6 +181,8 @@ async def run(url, max_pages, max_seconds, workers, discovery_workers):
                 "open=" + str(candidate.get("open_set_score")),
                 "known=" + str(candidate.get("known_score")),
                 "passes=" + str(len(candidate.get("scan_passes") or [])),
+                "legacy_sup=" + str(candidate.get("legacy_semantic_support")),
+                "multi_sup=" + str(candidate.get("multilingual_support")),
                 "multi=" + str(candidate.get("multi_technique_count")),
                 "independent=" + str(candidate.get("independent_technique_count")),
             )
