@@ -15,7 +15,7 @@ class AutoTuneTests(unittest.TestCase):
             [4],
         )
 
-    def test_candidate_workers_allow_all_on_normal_pc(self):
+    def test_candidate_workers_use_six_and_eight_on_strong_pc(self):
         self.assertEqual(
             _candidate_workers(
                 {
@@ -23,7 +23,18 @@ class AutoTuneTests(unittest.TestCase):
                     "memory_total_mb": 16384,
                 }
             ),
-            [4, 6, 8],
+            [6, 8],
+        )
+
+    def test_candidate_workers_use_four_and_six_on_midrange_pc(self):
+        self.assertEqual(
+            _candidate_workers(
+                {
+                    "cpu_count": 8,
+                    "memory_total_mb": 8192,
+                }
+            ),
+            [4, 6],
         )
 
     def test_choose_fastest_when_difference_is_material(self):
