@@ -538,6 +538,33 @@ class CrawlerPartialRecoveryTests(_ServerTestCase):
 
 
 class CrawlerBrowserSafetyTests(unittest.TestCase):
+    def test_page_triggered_download_is_suspicious(self):
+        event = crawler_parallel._build_download_event(
+            worker_id=2,
+            requested_url="https://example.test/page",
+            page_url="https://example.test/page",
+            download_url="https://example.test/files/payload.bin",
+            suggested_filename="payload.bin",
+        )
+
+        self.assertEqual(event["type"], "AUTO_DOWNLOAD_ATTEMPT")
+        self.assertEqual(event["risk"], "SUSPICIOUS")
+        self.assertTrue(event["page_triggered"])
+        self.assertTrue(event["blocked"])
+
+    def test_direct_download_navigation_is_info(self):
+        event = crawler_parallel._build_download_event(
+            worker_id=1,
+            requested_url="https://example.test/files/payload.bin",
+            page_url="about:blank",
+            download_url="https://example.test/files/payload.bin",
+            suggested_filename="payload.bin",
+        )
+
+        self.assertEqual(event["type"], "DOWNLOAD_NAVIGATION")
+        self.assertEqual(event["risk"], "INFO")
+        self.assertFalse(event["page_triggered"])
+
     def test_browser_context_explicitly_blocks_downloads(self):
         options = crawler_parallel._browser_context_options()
 
