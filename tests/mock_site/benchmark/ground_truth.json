@@ -4,7 +4,7 @@
   "positives": [
     {"id":"P01","page":"benchmark/hidden.html","technique":"TRANSPARENT","evidence_text":"TEST ONLY 불법 광고 회원 모집 가입 혜택 안내"},
     {"id":"P02","page":"benchmark/hidden.html","technique":"TRANSPARENT","evidence_text":"TEST ONLY 신규 회원 보너스 지급 홍보"},
-    {"id":"P03","page":"benchmark/hidden.html","technique":"TRANSPARENT","evidence_text":"TEST ONLY 우회 광고 가입 유도 문구"},
+    {"id":"P03","page":"benchmark/hidden.html","technique":"TRANSPARENT","evidence_text":"TEST ONLY 우회 주소 접속 회원 가입 이벤트"},
     {"id":"P04","page":"benchmark/hidden.html","technique":"OFFSCREEN","evidence_text":"TEST ONLY 사설 서비스 신규 가입 혜택 안내"},
     {"id":"P05","page":"benchmark/hidden.html","technique":"OFFSCREEN","evidence_text":"TEST ONLY hidden promotion join now claim bonus"},
     {"id":"P06","page":"benchmark/hidden.html","technique":"OFFSCREEN","evidence_text":"TEST ONLY unauthorized gambling advertisement sign up now"},
