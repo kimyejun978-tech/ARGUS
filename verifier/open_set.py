@@ -17,6 +17,17 @@ UI_HINTS = (
     "drawer",
 )
 
+UI_TEXT_LABEL_RE = re.compile(
+    r"^(?:menu|navigation|breadcrumb|pagination|메뉴|내비게이션)"
+    r"(?:\s+(?:guide|label|안내))?$",
+    re.IGNORECASE,
+)
+
+VERSION_LABEL_RE = re.compile(
+    r"^(?:version|ver\.?|버전)\s*[v.]?\s*\d+(?:\.\d+)*$",
+    re.IGNORECASE,
+)
+
 BIDI_OR_ZERO_WIDTH = {
     "\u200b",
     "\u200c",
@@ -109,6 +120,22 @@ def _ui_context_penalty(candidate):
 
     if any(hint in blob for hint in UI_HINTS):
         return 0.16, ["dialog/nav/header/footer 등 공통 UI 문맥"]
+
+    normalized_text = unicodedata.normalize(
+        "NFKC",
+        candidate.get("normalized_text")
+        or candidate.get("evidence_text")
+        or "",
+    ).strip().lower()
+
+    # 짧은 UI 라벨과 버전 표기는 전각 문자나 자모 분리로 작성되는 경우가
+    # 실제 사이트에도 있다. 위치 selector가 일반 div/p여도 이런 텍스트 자체는
+    # 광고성 open-set 근거가 아니므로 기존 UI 문맥 패널티를 동일하게 적용한다.
+    if len(normalized_text) <= 48 and (
+        UI_TEXT_LABEL_RE.fullmatch(normalized_text)
+        or VERSION_LABEL_RE.fullmatch(normalized_text)
+    ):
+        return 0.16, ["짧은 메뉴/탐색 라벨 또는 버전 메타데이터"]
 
     return 0.0, []
 

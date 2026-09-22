@@ -1,9 +1,11 @@
 import unittest
+from unittest.mock import AsyncMock
 
 from crawler_parallel import (
     _is_download_navigation_error,
     _is_navigation_timeout_error,
     _is_transient_browser_error,
+    _reset_page_after_failure,
 )
 
 
@@ -29,6 +31,15 @@ class CrawlerNavigationErrorTests(unittest.TestCase):
     def test_existing_transient_navigation_hint_still_matches(self):
         error = RuntimeError("Page.goto: net::ERR_ABORTED")
         self.assertTrue(_is_transient_browser_error(error))
+
+    def test_failed_page_reset_reports_failure(self):
+        page = AsyncMock()
+        page.goto.side_effect = RuntimeError("reset navigation failed")
+        page.evaluate.side_effect = RuntimeError("window.stop failed")
+
+        reset = __import__("asyncio").run(_reset_page_after_failure(page))
+
+        self.assertFalse(reset)
 
 
 if __name__ == "__main__":

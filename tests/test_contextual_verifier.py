@@ -197,6 +197,136 @@ class ContextualVerifierTests(unittest.TestCase):
         self.assertEqual(len(verified[0]["scan_passes"]), 5)
         self.assertGreaterEqual(verified[0]["open_set_score"], 0.60)
 
+    def test_stable_jamo_menu_label_is_benign_likely(self):
+        urls = [f"https://example.com/page-{index}" for index in range(8)]
+        target_url = urls[0]
+        selector = "main > article > div > p"
+        candidates = [
+            {
+                "url": target_url,
+                "location": selector,
+                "evidence_text": "ㅁㅔㄴㅠ ㅇㅏㄴㄴㅐ",
+                "normalized_text": "메뉴 안내",
+                "technique": "JAMO",
+                "reason": [
+                    "한글 음절을 우회하기 위한 초성·중성 분리 조합이 사용됨"
+                ],
+                "scan_pass": pass_name,
+            }
+            for pass_name in (
+                "desktop-initial",
+                "desktop-settled",
+                "desktop-scrolled",
+                "mobile-settled",
+                "mobile-scrolled",
+            )
+        ]
+        pages = [
+            {
+                "url": url,
+                "title": "Page",
+                "elements": (
+                    [{"selector": selector, "text": "ㅁㅔㄴㅠ ㅇㅏㄴㄴㅐ"}]
+                    if url == target_url
+                    else [{"selector": "main > p", "text": "ordinary content"}]
+                ),
+            }
+            for url in urls
+        ]
+
+        verified, rejected = verify_candidates([candidates], pages=pages)
+
+        self.assertEqual(len(verified), 0)
+        self.assertEqual(len(rejected), 1)
+        self.assertEqual(rejected[0]["verification_status"], "BENIGN_LIKELY")
+        self.assertLess(rejected[0]["open_set_score"], 0.60)
+
+    def test_stable_fullwidth_version_label_is_benign_likely(self):
+        urls = [f"https://example.com/page-{index}" for index in range(8)]
+        target_url = urls[0]
+        selector = "main > article > div > p"
+        candidates = [
+            {
+                "url": target_url,
+                "location": selector,
+                "evidence_text": "ＶＥＲＳＩＯＮ ２",
+                "normalized_text": "VERSION 2",
+                "technique": "HOMOGLYPH",
+                "reason": ["전각(Fullwidth) 영문·숫자가 ASCII 문자처럼 사용됨"],
+                "scan_pass": pass_name,
+            }
+            for pass_name in (
+                "desktop-initial",
+                "desktop-settled",
+                "desktop-scrolled",
+                "mobile-settled",
+                "mobile-scrolled",
+            )
+        ]
+        pages = [
+            {
+                "url": url,
+                "title": "Page",
+                "elements": (
+                    [{"selector": selector, "text": "ＶＥＲＳＩＯＮ ２"}]
+                    if url == target_url
+                    else [{"selector": "main > p", "text": "ordinary content"}]
+                ),
+            }
+            for url in urls
+        ]
+
+        verified, rejected = verify_candidates([candidates], pages=pages)
+
+        self.assertEqual(len(verified), 0)
+        self.assertEqual(len(rejected), 1)
+        self.assertEqual(rejected[0]["verification_status"], "BENIGN_LIKELY")
+        self.assertLess(rejected[0]["open_set_score"], 0.60)
+
+    def test_ui_word_inside_unknown_homoglyph_stays_suspicious(self):
+        urls = [f"https://example.com/page-{index}" for index in range(8)]
+        target_url = urls[0]
+        selector = "main > article > p"
+        candidates = [
+            {
+                "url": target_url,
+                "location": selector,
+                "evidence_text": "QОLOWE menu",
+                "normalized_text": "QOLOWE menu",
+                "technique": "HOMOGLYPH",
+                "reason": [
+                    "한 단어 안에 라틴 문자와 유사한 키릴/그리스 문자가 혼합됨"
+                ],
+                "scan_pass": pass_name,
+            }
+            for pass_name in (
+                "desktop-initial",
+                "desktop-settled",
+                "desktop-scrolled",
+                "mobile-settled",
+                "mobile-scrolled",
+            )
+        ]
+        pages = [
+            {
+                "url": url,
+                "title": "Page",
+                "elements": (
+                    [{"selector": selector, "text": "QОLOWE menu"}]
+                    if url == target_url
+                    else [{"selector": "main > p", "text": "ordinary content"}]
+                ),
+            }
+            for url in urls
+        ]
+
+        verified, rejected = verify_candidates([candidates], pages=pages)
+
+        self.assertEqual(len(verified), 1)
+        self.assertEqual(len(rejected), 0)
+        self.assertEqual(verified[0]["verification_status"], "SUSPICIOUS")
+        self.assertGreaterEqual(verified[0]["open_set_score"], 0.60)
+
     def test_opacity_zero_with_zero_width_can_survive_open_set(self):
         urls = [f"https://example.com/page-{index}" for index in range(6)]
         target_url = urls[0]

@@ -45,6 +45,14 @@ TRANSIENT_BROWSER_ERROR_HINTS = (
     "navigation interrupted",
 )
 
+# 기본값은 production 동작을 그대로 유지한다. 테스트에서는 이 상수만 짧게
+# patch해 실제 Playwright navigation timeout/partial DOM 복구 경로를 빠르게
+# 재현한다.
+BROWSER_NAVIGATION_TIMEOUT_MS = 30000
+BROWSER_NAVIGATION_SETTLE_TIMEOUT_MS = 3000
+BROWSER_NAVIGATION_RETRY_TIMEOUT_MS = 15000
+BROWSER_FAILURE_RESET_TIMEOUT_MS = 2000
+
 
 def _is_transient_browser_error(exc) -> bool:
     message = str(exc).lower()
@@ -62,6 +70,33 @@ def _is_navigation_timeout_error(exc) -> bool:
         and "timeout" in message
         and "exceeded" in message
     )
+
+
+async def _reset_page_after_failure(page):
+    """실패한 navigation이 다음 queue 항목까지 이어지지 않게 격리한다."""
+
+    try:
+        await page.goto(
+            "about:blank",
+            wait_until="commit",
+            timeout=BROWSER_FAILURE_RESET_TIMEOUT_MS,
+        )
+        return True
+    except Exception:
+        try:
+            await page.evaluate("window.stop()")
+        except Exception:
+            return False
+
+    try:
+        await page.goto(
+            "about:blank",
+            wait_until="commit",
+            timeout=BROWSER_FAILURE_RESET_TIMEOUT_MS,
+        )
+        return True
+    except Exception:
+        return False
 
 
 def _canonicalize_pipeline_url(url: str) -> str:
@@ -171,6 +206,8 @@ async def crawl_site(
     browser_timeout_retry_count = 0
     browser_partial_recovery_count = 0
     browser_download_skip_count = 0
+    browser_page_recreate_count = 0
+    browser_page_recreate_error_count = 0
     forced_cleanup = False
 
     def time_remaining():
@@ -459,6 +496,37 @@ async def crawl_site(
             nonlocal browser_timeout_retry_count
             nonlocal browser_partial_recovery_count
             nonlocal browser_download_skip_count
+            nonlocal browser_page_recreate_count
+            nonlocal browser_page_recreate_error_count
+
+            async def reset_worker_page(failed_url):
+                nonlocal page
+                nonlocal browser_page_recreate_count
+                nonlocal browser_page_recreate_error_count
+
+                if await _reset_page_after_failure(page):
+                    return True
+
+                try:
+                    await page.close()
+                except Exception:
+                    pass
+
+                try:
+                    page = await context.new_page()
+                    browser_page_recreate_count += 1
+                    return True
+                except Exception as exc:
+                    browser_page_recreate_error_count += 1
+                    async with state_lock:
+                        errors.append(
+                            {
+                                "url": failed_url,
+                                "error": f"worker page reset failed: {exc}",
+                                "worker": worker_id,
+                            }
+                        )
+                    return False
 
             while True:
                 if stop_event.is_set():
@@ -511,7 +579,7 @@ async def crawl_site(
                         f"{ordinal}: {requested_url}"
                     )
 
-                    timeout_ms = 30000
+                    timeout_ms = BROWSER_NAVIGATION_TIMEOUT_MS
                     remaining = time_remaining()
 
                     if remaining is not None:
@@ -521,7 +589,13 @@ async def crawl_site(
                             continue
 
                         timeout_ms = int(
-                            max(1000, min(30000, remaining * 1000))
+                            max(
+                                1000,
+                                min(
+                                    BROWSER_NAVIGATION_TIMEOUT_MS,
+                                    remaining * 1000,
+                                ),
+                            )
                         )
 
                     page_work_started = time.perf_counter()
@@ -542,6 +616,8 @@ async def crawl_site(
                             # 렌더링할 수 있는 페이지가 아니다. 탐색 실패로 세지
                             # 않고 비-HTML 리소스 skip으로 별도 집계한다.
                             browser_download_skip_count += 1
+                            if not await reset_worker_page(requested_url):
+                                return
                             continue
 
                         is_timeout = _is_navigation_timeout_error(exc)
@@ -561,7 +637,10 @@ async def crawl_site(
                             try:
                                 await page.wait_for_load_state(
                                     "domcontentloaded",
-                                    timeout=min(3000, timeout_ms),
+                                    timeout=min(
+                                        BROWSER_NAVIGATION_SETTLE_TIMEOUT_MS,
+                                        timeout_ms,
+                                    ),
                                 )
                                 recovered_navigation = True
                             except Exception:
@@ -569,7 +648,10 @@ async def crawl_site(
 
                             if not recovered_navigation:
                                 remaining = time_remaining()
-                                retry_timeout_ms = min(15000, timeout_ms)
+                                retry_timeout_ms = min(
+                                    BROWSER_NAVIGATION_RETRY_TIMEOUT_MS,
+                                    timeout_ms,
+                                )
 
                                 if remaining is not None:
                                     if remaining <= 0:
@@ -597,6 +679,8 @@ async def crawl_site(
                                 except Exception as retry_exc:
                                     if _is_download_navigation_error(retry_exc):
                                         browser_download_skip_count += 1
+                                        if not await reset_worker_page(requested_url):
+                                            return
                                         continue
 
                                     # 재시도 자체가 timeout/ERR_ABORTED 등으로
@@ -638,6 +722,8 @@ async def crawl_site(
                                                     "worker": worker_id,
                                                 }
                                             )
+                                        if not await reset_worker_page(requested_url):
+                                            return
                                         continue
                         else:
                             async with state_lock:
@@ -648,6 +734,8 @@ async def crawl_site(
                                         "worker": worker_id,
                                     }
                                 )
+                            if not await reset_worker_page(requested_url):
+                                return
                             continue
 
                     navigation_elapsed = (
@@ -761,6 +849,8 @@ async def crawl_site(
                                         "worker": worker_id,
                                     }
                                 )
+                            if not await reset_worker_page(final_url):
+                                return
                             continue
 
                     page_result["url"] = final_url
@@ -1006,6 +1096,8 @@ async def crawl_site(
         "browser_timeout_retry_count": browser_timeout_retry_count,
         "browser_partial_recovery_count": browser_partial_recovery_count,
         "browser_download_skip_count": browser_download_skip_count,
+        "browser_page_recreate_count": browser_page_recreate_count,
+        "browser_page_recreate_error_count": browser_page_recreate_error_count,
         "forced_cleanup": forced_cleanup,
         "watchdog_overrun_seconds": watchdog_overrun_seconds,
         "limit_reached": (
