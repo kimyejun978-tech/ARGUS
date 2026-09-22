@@ -8,7 +8,10 @@ from verifier.open_set import BIDI_OR_ZERO_WIDTH, open_set_anomaly_score
 from verifier.semantic_model import semantic_risk_with_support
 
 
-DIGIT_ONLY_HOMOGLYPH_REASON = "단어 내부 숫자가 유사한 알파벳 문자 대신 사용됨"\n\n\nUI_LANDMARK_HINTS = (
+DIGIT_ONLY_HOMOGLYPH_REASON = "단어 내부 숫자가 유사한 알파벳 문자 대신 사용됨"
+
+
+UI_LANDMARK_HINTS = (
     "dialog",
     "modal",
     "nav",
