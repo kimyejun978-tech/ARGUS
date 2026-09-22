@@ -184,6 +184,7 @@ def _benchmark_html():
         f"<p>iframe sample {index}</p>"
         for index in range(28)
     )
+    iframe_srcdoc = iframe_rows.replace('"', "&quot;")
 
     return f"""<!DOCTYPE html>
 <html lang="ko">
@@ -203,7 +204,7 @@ main {{ max-width: 1100px; margin: auto; position: relative; }}
 <main>
 <h1>ARGUS Auto-Tune Probe</h1>
 {''.join(rows)}
-<iframe srcdoc="{iframe_rows.replace('"', '&quot;')}"></iframe>
+<iframe srcdoc="{iframe_srcdoc}"></iframe>
 </main>
 </body>
 </html>"""
