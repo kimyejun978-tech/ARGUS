@@ -51,6 +51,10 @@ class ArgusApp(tk.Tk):
         self.confirmed_var = tk.StringVar(value="0")
         self.suspicious_var = tk.StringVar(value="0")
         self.benign_var = tk.StringVar(value="0")
+        self.detail_technique_var = tk.StringVar(value="-")
+        self.detail_evidence_var = tk.StringVar(value="결과 항목을 선택하면 상세 정보가 표시됩니다.")
+        self.detail_url_var = tk.StringVar(value="-")
+        self.detail_location_var = tk.StringVar(value="-")
 
         self._configure_styles()
         self._build_ui()
@@ -402,7 +406,7 @@ class ArgusApp(tk.Tk):
         self.open_result_button.configure(state="disabled")
 
         tree_wrap = tk.Frame(results_frame, bg=PANEL)
-        tree_wrap.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+        tree_wrap.pack(fill="both", expand=True, padx=12, pady=(0, 8))
 
         columns = ("technique", "evidence", "url", "location")
         self.tree = ttk.Treeview(
@@ -415,30 +419,68 @@ class ArgusApp(tk.Tk):
         self.tree.heading("evidence", text="탐지 문구")
         self.tree.heading("url", text="페이지")
         self.tree.heading("location", text="위치")
-        self.tree.column("technique", width=110, minwidth=100, stretch=False)
-        self.tree.column("evidence", width=270, minwidth=180)
-        self.tree.column("url", width=390, minwidth=240)
-        self.tree.column("location", width=300, minwidth=220)
+        self.tree.column("technique", width=115, minwidth=105, stretch=False)
+        self.tree.column("evidence", width=300, minwidth=220, stretch=True)
+        self.tree.column("url", width=400, minwidth=280, stretch=True)
+        self.tree.column("location", width=320, minwidth=240, stretch=True)
+        self.tree.pack(fill="both", expand=True)
 
-        y_scroll = self._scrollbar(
+        self.tree.bind("<<TreeviewSelect>>", self._on_result_select)
+        self.tree.bind(
+            "<MouseWheel>",
+            lambda event: self.tree.yview_scroll(
+                int(-1 * (event.delta / 120)),
+                "units",
+            ),
+        )
+
+        self.empty_results_label = tk.Label(
             tree_wrap,
-            orient="vertical",
-            command=self.tree.yview,
+            text="탐지 결과가 없습니다.\n검사가 완료되면 발견 항목이 여기에 표시됩니다.",
+            bg=PANEL,
+            fg="#667385",
+            justify="center",
+            font=("Segoe UI", 10),
         )
-        x_scroll = self._scrollbar(
-            tree_wrap,
-            orient="horizontal",
-            command=self.tree.xview,
+        self.empty_results_label.place(relx=0.5, rely=0.48, anchor="center")
+
+        detail_panel = tk.Frame(
+            results_frame,
+            bg="#0d141d",
+            highlightbackground=BORDER,
+            highlightthickness=1,
         )
-        self.tree.configure(
-            yscrollcommand=y_scroll.set,
-            xscrollcommand=x_scroll.set,
+        detail_panel.pack(fill="x", padx=12, pady=(0, 12))
+
+        detail_header = tk.Frame(detail_panel, bg="#0d141d")
+        detail_header.pack(fill="x", padx=14, pady=(10, 6))
+
+        tk.Label(
+            detail_header,
+            text="선택 항목 상세",
+            bg="#0d141d",
+            fg=MUTED,
+            font=("Segoe UI Semibold", 9),
+        ).pack(side="left")
+
+        self.copy_detail_button = self._button(
+            detail_header,
+            "상세 복사",
+            self._copy_selected_detail,
+            bg=PANEL_2,
+            active_bg="#1b2734",
         )
-        self.tree.grid(row=0, column=0, sticky="nsew")
-        y_scroll.grid(row=0, column=1, sticky="ns")
-        x_scroll.grid(row=1, column=0, sticky="ew")
-        tree_wrap.grid_rowconfigure(0, weight=1)
-        tree_wrap.grid_columnconfigure(0, weight=1)
+        self.copy_detail_button.pack(side="right")
+        self.copy_detail_button.configure(state="disabled")
+
+        detail_body = tk.Frame(detail_panel, bg="#0d141d")
+        detail_body.pack(fill="x", padx=14, pady=(0, 10))
+        detail_body.grid_columnconfigure(1, weight=1)
+
+        self._detail_row(detail_body, 0, "기법", self.detail_technique_var)
+        self._detail_row(detail_body, 1, "탐지 문구", self.detail_evidence_var)
+        self._detail_row(detail_body, 2, "페이지", self.detail_url_var)
+        self._detail_row(detail_body, 3, "위치", self.detail_location_var)
 
         self.log_text = tk.Text(
             log_frame,
@@ -446,31 +488,61 @@ class ArgusApp(tk.Tk):
             fg="#cdd6e1",
             insertbackground=TEXT,
             relief="flat",
-            wrap="none",
+            wrap="word",
             font=("Consolas", 9),
             padx=12,
             pady=12,
             state="disabled",
         )
-        log_y = self._scrollbar(
-            log_frame,
-            orient="vertical",
-            command=self.log_text.yview,
+        self.log_text.pack(fill="both", expand=True)
+
+    def _detail_row(self, parent, row, label, variable):
+        tk.Label(
+            parent,
+            text=label,
+            bg="#0d141d",
+            fg="#6f7f93",
+            anchor="nw",
+            font=("Segoe UI Semibold", 8),
+            width=10,
+        ).grid(row=row, column=0, sticky="nw", pady=2)
+
+        tk.Label(
+            parent,
+            textvariable=variable,
+            bg="#0d141d",
+            fg=TEXT,
+            anchor="w",
+            justify="left",
+            wraplength=980,
+            font=("Segoe UI", 9),
+        ).grid(row=row, column=1, sticky="ew", pady=2)
+
+    def _on_result_select(self, _event=None):
+        selection = self.tree.selection()
+        if not selection:
+            return
+
+        values = self.tree.item(selection[0], "values")
+        if len(values) < 4:
+            return
+
+        self.detail_technique_var.set(values[0] or "-")
+        self.detail_evidence_var.set(values[1] or "-")
+        self.detail_url_var.set(values[2] or "-")
+        self.detail_location_var.set(values[3] or "-")
+        self.copy_detail_button.configure(state="normal")
+
+    def _copy_selected_detail(self):
+        text = (
+            f"기법: {self.detail_technique_var.get()}\n"
+            f"탐지 문구: {self.detail_evidence_var.get()}\n"
+            f"페이지: {self.detail_url_var.get()}\n"
+            f"위치: {self.detail_location_var.get()}"
         )
-        log_x = self._scrollbar(
-            log_frame,
-            orient="horizontal",
-            command=self.log_text.xview,
-        )
-        self.log_text.configure(
-            yscrollcommand=log_y.set,
-            xscrollcommand=log_x.set,
-        )
-        self.log_text.grid(row=0, column=0, sticky="nsew")
-        log_y.grid(row=0, column=1, sticky="ns")
-        log_x.grid(row=1, column=0, sticky="ew")
-        log_frame.grid_rowconfigure(0, weight=1)
-        log_frame.grid_columnconfigure(0, weight=1)
+        self.clipboard_clear()
+        self.clipboard_append(text)
+        self.update()
 
     def _show_tab(self, name):
         if name == "log":
@@ -583,6 +655,12 @@ class ArgusApp(tk.Tk):
         self.confirmed_var.set("0")
         self.suspicious_var.set("0")
         self.benign_var.set("0")
+        self.detail_technique_var.set("-")
+        self.detail_evidence_var.set("결과 항목을 선택하면 상세 정보가 표시됩니다.")
+        self.detail_url_var.set("-")
+        self.detail_location_var.set("-")
+        self.copy_detail_button.configure(state="disabled")
+        self.empty_results_label.place(relx=0.5, rely=0.48, anchor="center")
         self._update_result_summary()
 
         for item in self.tree.get_children():
@@ -803,18 +881,30 @@ class ArgusApp(tk.Tk):
         for item in self.tree.get_children():
             self.tree.delete(item)
 
+        self.tree.tag_configure("TRANSPARENT", foreground="#8fc7ff")
+        self.tree.tag_configure("OFFSCREEN", foreground="#d6b7ff")
+        self.tree.tag_configure("JAMO", foreground="#86deb2")
+        self.tree.tag_configure("HOMOGLYPH", foreground="#ffd28c")
+
         for finding in findings:
+            technique = finding.get("technique", "")
             evidence = str(finding.get("evidence_text", "")).replace("\n", " ")
             self.tree.insert(
                 "",
                 "end",
                 values=(
-                    finding.get("technique", ""),
+                    technique,
                     evidence,
                     finding.get("url", ""),
                     finding.get("location", ""),
                 ),
+                tags=(technique,),
             )
+
+        if findings:
+            self.empty_results_label.place_forget()
+        else:
+            self.empty_results_label.place(relx=0.5, rely=0.48, anchor="center")
 
         self.findings_var.set(str(len(findings)))
         self.open_result_button.configure(state="normal")
