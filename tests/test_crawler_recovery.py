@@ -203,6 +203,15 @@ class PageCapSitemapHandler(BaseHTTPRequestHandler):
             )
             return
 
+        if path in {"/a-slow.html", "/b-fast.html"}:
+            _write_response(
+                self,
+                200,
+                b"<html><body><p>CAP PAGE</p></body></html>",
+                {"Content-Type": "text/html"},
+            )
+            return
+
         if path == "/robots.txt":
             _write_response(self, 404, b"missing")
             return
@@ -331,6 +340,85 @@ class CrawlerFailureIsolationTests(_ServerTestCase):
 
 class CrawlerPageCapTests(_ServerTestCase):
     handler_class = PageCapSitemapHandler
+
+    def test_page_cap_cancels_stuck_sibling_worker(self):
+        slow_started = asyncio.Event()
+
+        async def controlled_scan(page):
+            path = urlsplit(page.url).path
+
+            if path == "/index.html":
+                return {
+                    "url": page.url,
+                    "title": "entry",
+                    "elements": [],
+                    "links": {
+                        f"{self.origin}/a-slow.html",
+                        f"{self.origin}/b-fast.html",
+                    },
+                    "frame_count": 1,
+                    "unique_element_count": 0,
+                    "observation_count": 0,
+                    "scan_pass_count": 5,
+                    "scan_passes": [
+                        "desktop-initial",
+                        "desktop-settled",
+                        "desktop-scrolled",
+                        "mobile-settled",
+                        "mobile-scrolled",
+                    ],
+                    "timings": {"scan_total": 0.0},
+                }
+
+            if path == "/a-slow.html":
+                slow_started.set()
+                await asyncio.sleep(10)
+
+            if path == "/b-fast.html":
+                await asyncio.wait_for(slow_started.wait(), timeout=2.0)
+
+            return {
+                "url": page.url,
+                "title": "child",
+                "elements": [],
+                "links": set(),
+                "frame_count": 1,
+                "unique_element_count": 0,
+                "observation_count": 0,
+                "scan_pass_count": 5,
+                "scan_passes": [
+                    "desktop-initial",
+                    "desktop-settled",
+                    "desktop-scrolled",
+                    "mobile-settled",
+                    "mobile-scrolled",
+                ],
+                "timings": {"scan_total": 0.0},
+            }
+
+        started = time.perf_counter()
+
+        with patch.object(
+            crawler_parallel,
+            "_scan_loaded_page_multi",
+            side_effect=controlled_scan,
+        ):
+            result = asyncio.run(
+                crawl_site(
+                    f"{self.origin}/index.html",
+                    max_pages=2,
+                    max_seconds=8,
+                    worker_count=2,
+                    discovery_worker_count=0,
+                )
+            )
+
+        elapsed = time.perf_counter() - started
+
+        self.assertEqual(result["page_count"], 2)
+        self.assertTrue(result["page_limit_reached"])
+        self.assertFalse(result["time_limit_reached"])
+        self.assertLess(elapsed, 3.0)
 
     def test_page_cap_stops_inflight_sitemap_from_growing_known_queue(self):
         self.handler_class.sitemap_started.clear()
