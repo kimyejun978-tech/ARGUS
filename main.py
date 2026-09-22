@@ -4,6 +4,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from autotune import auto_tune_workers
 from crawler_parallel import crawl_site
 from detectors.homoglyph import detect_homoglyph_candidates
 from detectors.jamo import detect_jamo_candidates
@@ -16,14 +17,9 @@ from verifier.contextual import verify_candidates
 MAX_CRAWL_PAGES = int(os.getenv("ARGUS_MAX_PAGES", "10000"))
 MAX_CRAWL_SECONDS = float(os.getenv("ARGUS_MAX_SECONDS", "1620"))
 
-# 심사 PC 사양을 미리 알 수 없으므로 8 worker를 무조건 강제하지 않는다.
-# 논리 CPU 수를 기준으로 4~8 사이에서 자동 선택하고, ARGUS_WORKERS 환경변수로
-# 언제든 명시적으로 덮어쓸 수 있게 한다.
+# Auto-Tune 실패/비활성화 시 사용할 안전한 fallback.
+# 실제 실행 worker는 CPU/RAM + 짧은 로컬 DOM micro-benchmark 결과로 결정한다.
 DEFAULT_CRAWL_WORKERS = min(8, max(4, os.cpu_count() or 4))
-CRAWL_WORKERS = max(
-    1,
-    int(os.getenv("ARGUS_WORKERS", str(DEFAULT_CRAWL_WORKERS))),
-)
 DISCOVERY_WORKERS = max(0, int(os.getenv("ARGUS_DISCOVERY_WORKERS", "8")))
 
 
@@ -106,15 +102,56 @@ async def main():
     target = input("검사할 URL 또는 파일: ").strip()
     target = normalize_target(target)
 
+    started = datetime.now().astimezone()
+    start_timer = time.perf_counter()
+
+    crawl_workers, tuning = await auto_tune_workers(
+        DEFAULT_CRAWL_WORKERS
+    )
+
     print("[ARGUS] 진입 URL :", target)
     print(
         f"[ARGUS] 비상 watchdog : {MAX_CRAWL_SECONDS:.0f}초 / "
         f"하드 최대 {MAX_CRAWL_PAGES} 완료 페이지"
     )
     print(
-        f"[ARGUS] 브라우저 정밀 검사 : {CRAWL_WORKERS} worker / "
+        f"[ARGUS] 브라우저 정밀 검사 : {crawl_workers} worker / "
         "각 페이지 5-pass"
     )
+
+    tuning_source = tuning.get("source", "fallback")
+    if tuning_source == "benchmark":
+        print(
+            "[ARGUS] Auto-Tune : 신규 측정 완료 / "
+            f"{tuning.get('benchmark_elapsed_sec', 0.0):.2f}초"
+        )
+        for result in tuning.get("results", []):
+            print(
+                "  -",
+                f"{result.get('workers')} worker",
+                f"{result.get('pages_per_sec', 0.0):.2f} probe pages/s",
+                f"errors={result.get('errors', 0)}",
+            )
+    elif tuning_source == "cache":
+        print(
+            "[ARGUS] Auto-Tune : 저장된 측정값 사용 / "
+            f"{crawl_workers} worker"
+        )
+    elif tuning_source == "env":
+        print(
+            "[ARGUS] Auto-Tune : ARGUS_WORKERS 환경변수 우선 / "
+            f"{crawl_workers} worker"
+        )
+    elif tuning_source == "disabled":
+        print(
+            "[ARGUS] Auto-Tune : 비활성화 / "
+            f"fallback {crawl_workers} worker"
+        )
+    else:
+        print(
+            "[ARGUS] Auto-Tune : 측정 실패, fallback 사용 / "
+            f"{crawl_workers} worker"
+        )
     print(
         f"[ARGUS] HTTP 고속 discovery : {DISCOVERY_WORKERS} worker / "
         "HTML + robots + sitemap"
@@ -128,14 +165,11 @@ async def main():
         "open-set 구조 이상 탐지"
     )
 
-    started = datetime.now().astimezone()
-    start_timer = time.perf_counter()
-
     crawl_result = await crawl_site(
         target,
         max_pages=MAX_CRAWL_PAGES,
         max_seconds=MAX_CRAWL_SECONDS,
-        worker_count=CRAWL_WORKERS,
+        worker_count=crawl_workers,
         discovery_worker_count=DISCOVERY_WORKERS,
     )
 
@@ -198,7 +232,7 @@ async def main():
     print("==============================")
     print("         분석 결과")
     print("==============================")
-    print("브라우저 worker   :", crawl_result.get("worker_count", CRAWL_WORKERS))
+    print("브라우저 worker   :", crawl_result.get("worker_count", crawl_workers))
     print(
         "discovery worker  :",
         crawl_result.get("discovery_worker_count", DISCOVERY_WORKERS),
