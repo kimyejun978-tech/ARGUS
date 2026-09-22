@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ARGUS · 공공 웹사이트 점검 시스템</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="identity">
+        <div class="identity-mark" aria-hidden="true">
+          <span class="bar blue"></span><span class="bar red"></span>
+        </div>
+        <div>
+          <div class="eyebrow">PUBLIC WEB INSPECTION</div>
+          <h1>ARGUS</h1>
+          <p>공공 웹사이트 은닉광고 자동 점검 시스템</p>
+        </div>
+      </div>
+      <div id="statusBadge" class="status-badge idle">
+        <span class="status-dot"></span>
+        <span id="statusText">대기</span>
+      </div>
+    </header>
+
+    <main>
+      <section class="panel target-panel">
+        <div class="section-head">
+          <div>
+            <span class="section-kicker">점검 대상</span>
+            <h2>URL 또는 HTML 파일 입력</h2>
+          </div>
+          <span class="security-note">다운로드 저장 차단 · 비공식 위험 동작 별도 기록</span>
+        </div>
+        <div class="target-row">
+          <input id="targetInput" type="text" value="https://" autocomplete="off" spellcheck="false">
+          <button id="fileButton" class="button ghost">파일 선택</button>
+          <button id="startButton" class="button primary">점검 시작</button>
+          <button id="cancelButton" class="button danger" disabled>중지</button>
+        </div>
+        <div id="formMessage" class="form-message"></div>
+      </section>
+
+      <section class="metrics" aria-label="점검 현황">
+        <article class="metric-card">
+          <span class="metric-label">운영 상태</span>
+          <strong id="metricStatus">대기</strong>
+          <small id="autotuneText">Auto-Tune 대기</small>
+        </article>
+        <article class="metric-card">
+          <span class="metric-label">정밀검사 시도</span>
+          <strong id="attemptedCount">0</strong>
+          <small>브라우저 분석 요청</small>
+        </article>
+        <article class="metric-card">
+          <span class="metric-label">분석 완료</span>
+          <strong id="completedCount">0</strong>
+          <small id="discoveredText">발견 URL 집계 대기</small>
+        </article>
+        <article class="metric-card">
+          <span class="metric-label">공식 탐지</span>
+          <strong id="findingCount">0</strong>
+          <small id="auxCountText">보조 위험 0건</small>
+        </article>
+        <article class="metric-card">
+          <span class="metric-label">소요 시간</span>
+          <strong id="elapsedText">0.0초</strong>
+          <small>엔진 실행 기준</small>
+        </article>
+      </section>
+
+      <section class="panel live-panel">
+        <div class="section-head compact">
+          <div>
+            <span class="section-kicker">실시간 점검 현황</span>
+            <h2 id="liveTitle">점검 대기</h2>
+          </div>
+          <button id="openFolderButton" class="text-button" disabled>결과 폴더 열기</button>
+        </div>
+        <div class="current-url">
+          <span>현재 작업</span>
+          <code id="currentUrl">점검할 주소를 입력해 주세요.</code>
+        </div>
+        <div id="progressTrack" class="progress-track">
+          <div id="progressFill" class="progress-fill"></div>
+        </div>
+        <div id="warningBox" class="warning-box hidden"></div>
+      </section>
+
+      <section class="workspace">
+        <nav class="tabs" aria-label="결과 화면">
+          <button class="tab active" data-tab="official">공식 탐지 결과 <span id="officialTabCount">0</span></button>
+          <button class="tab" data-tab="aux">보조 위험 진단 <span id="auxTabCount">0</span></button>
+          <button class="tab" data-tab="logs">시스템 로그</button>
+        </nav>
+
+        <div id="officialPanel" class="tab-panel active">
+          <div class="summary-strip">
+            <span>확정 탐지 <b id="confirmedCount">0</b></span>
+            <i></i>
+            <span>추가 검토 <b id="suspiciousCount">0</b></span>
+            <i></i>
+            <span>정상 가능성 <b id="benignCount">0</b></span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>기법</th><th>탐지 문구</th><th>페이지</th><th>위치</th></tr></thead>
+              <tbody id="officialBody"></tbody>
+            </table>
+            <div id="officialEmpty" class="empty-state">
+              <strong>탐지 결과가 없습니다.</strong>
+              <span>점검이 완료되면 공식 판정 결과가 표시됩니다.</span>
+            </div>
+          </div>
+        </div>
+
+        <div id="auxPanel" class="tab-panel">
+          <div class="notice-line">공식 result.json과 분리된 보조 진단입니다. 자동 다운로드 요청은 저장하지 않고 차단합니다.</div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>판정</th><th>발생 페이지</th><th>다운로드 요청</th><th>파일명</th></tr></thead>
+              <tbody id="auxBody"></tbody>
+            </table>
+            <div id="auxEmpty" class="empty-state">
+              <strong>보조 위험 진단 항목이 없습니다.</strong>
+              <span>페이지가 자동 다운로드를 시도하면 이 영역에 기록됩니다.</span>
+            </div>
+          </div>
+        </div>
+
+        <div id="logsPanel" class="tab-panel">
+          <pre id="logOutput" class="log-output">ARGUS 시스템 로그 대기 중</pre>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="detailModal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-card">
+      <div class="modal-head">
+        <div><span class="section-kicker">탐지 상세</span><h2 id="detailTitle">상세 정보</h2></div>
+        <button id="closeModal" class="icon-button" aria-label="닫기">×</button>
+      </div>
+      <dl id="detailList"></dl>
+      <div class="modal-actions">
+        <button id="copyDetailButton" class="button ghost">상세 복사</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="./app.js"></script>
+</body>
+</html>
