@@ -537,6 +537,17 @@ class CrawlerPartialRecoveryTests(_ServerTestCase):
         )
 
 
+class CrawlerBrowserSafetyTests(unittest.TestCase):
+    def test_browser_context_explicitly_blocks_downloads(self):
+        options = crawler_parallel._browser_context_options()
+
+        self.assertIs(options["accept_downloads"], False)
+        self.assertEqual(
+            options["viewport"],
+            {"width": 1280, "height": 720},
+        )
+
+
 class DiscoveryFailureParsingTests(unittest.TestCase):
     def test_malformed_sitemap_is_empty_instead_of_raising(self):
         pages, sitemaps = extract_sitemap_entries(
