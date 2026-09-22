@@ -39,6 +39,19 @@ class GuiLogParserTests(unittest.TestCase):
         self.assertEqual(event["key"], "result.json")
         self.assertEqual(event["value"], r"C:\ARGUS\result.json")
 
+    def test_auxiliary_download_summary(self):
+        event = parse_engine_line("자동 다운로드 의심: 2")
+        self.assertEqual(event["type"], "summary")
+        self.assertEqual(event["key"], "자동 다운로드 의심")
+        self.assertEqual(event["value"], "2")
+
+    def test_extra_result_path_line(self):
+        event = parse_engine_line(
+            r"result_extra.json: C:\\ARGUS\\result_extra.json"
+        )
+        self.assertEqual(event["type"], "summary")
+        self.assertEqual(event["key"], "result_extra.json")
+
     def test_autotune_line(self):
         event = parse_engine_line(
             "[ARGUS] Auto-Tune : 저장된 측정값 사용 / 8 worker"
