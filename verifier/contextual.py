@@ -8,7 +8,7 @@ from verifier.open_set import BIDI_OR_ZERO_WIDTH, open_set_anomaly_score
 from verifier.semantic_model import semantic_risk_with_support
 
 
-UI_LANDMARK_HINTS = (
+DIGIT_ONLY_HOMOGLYPH_REASON = "단어 내부 숫자가 유사한 알파벳 문자 대신 사용됨"\n\n\nUI_LANDMARK_HINTS = (
     "dialog",
     "modal",
     "nav",
@@ -237,6 +237,28 @@ def _context_text(
 
     parts.extend(nearby)
     return " ".join(parts)[:max_chars]
+
+
+def _is_digit_only_homoglyph(candidate):
+    """
+    ASCII 숫자 치환만 근거인 HOMOGLYPH 후보를 구분한다.
+
+    W3C, C14N, UTF8Mode, 0x1f 같은 정상 기술 표기에도 내부 숫자가 흔하므로
+    이 패턴만으로 open-set SUSPICIOUS 승격을 허용하지 않는다. detector는
+    후보를 계속 생성하고, 알려진 의미 신호나 zero-width/bidi 같은 추가
+    변조 신호가 있으면 verifier가 유지할 수 있다.
+    """
+
+    if candidate.get("technique") != "HOMOGLYPH":
+        return False
+
+    reasons = {
+        str(reason).strip()
+        for reason in candidate.get("reason", [])
+        if str(reason).strip()
+    }
+
+    return reasons == {DIGIT_ONLY_HOMOGLYPH_REASON}
 
 
 def _technique_strength(candidate):
@@ -631,10 +653,27 @@ def verify_candidates(candidate_groups, pages=None, profile=None):
         )
 
         if technique in {"JAMO", "HOMOGLYPH"}:
-            open_suspicious = (
-                open_score >= 0.60
-                and repeat_count <= 2
-            )
+            digit_only_homoglyph = _is_digit_only_homoglyph(candidate)
+
+            if digit_only_homoglyph:
+                # ASCII digit-internal은 정상 기술 식별자에서도 매우 흔하다.
+                # 구조 점수만으로는 open-set 승격하지 않고, 의미 모델이 실제
+                # 학습 패턴을 충분히 지지하거나 zero-width/bidi 변조가 함께
+                # 있을 때만 SUSPICIOUS로 유지한다. known_confirmed 경로는
+                # 그대로이므로 B0NUS 같은 알려진 광고성 문맥은 계속 잡힌다.
+                open_suspicious = (
+                    open_score >= 0.60
+                    and repeat_count <= 2
+                    and (
+                        semantic_support_ok
+                        or strong_text_obfuscation
+                    )
+                )
+            else:
+                open_suspicious = (
+                    open_score >= 0.60
+                    and repeat_count <= 2
+                )
         else:
             # 동일 텍스트가 어떤 scan pass에서 정상적으로 화면 안에 렌더링됐다면
             # 탭/슬라이드/반응형 UI의 상태 복제일 가능성이 높다. 이런 CSS 후보는
