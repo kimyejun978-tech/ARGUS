@@ -54,6 +54,18 @@ BROWSER_NAVIGATION_RETRY_TIMEOUT_MS = 15000
 BROWSER_FAILURE_RESET_TIMEOUT_MS = 2000
 
 
+def _browser_context_options():
+    """Untrusted web pages are rendered in an ephemeral, no-download context."""
+
+    return {
+        "viewport": {"width": 1280, "height": 720},
+        "ignore_https_errors": True,
+        # ARGUS only analyzes rendered pages. Files offered by a target site
+        # must never be persisted as part of crawling.
+        "accept_downloads": False,
+    }
+
+
 def _is_transient_browser_error(exc) -> bool:
     message = str(exc).lower()
     return any(hint in message for hint in TRANSIENT_BROWSER_ERROR_HINTS)
@@ -339,8 +351,7 @@ async def crawl_site(
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context(
-            viewport={"width": 1280, "height": 720},
-            ignore_https_errors=True,
+            **_browser_context_options()
         )
         request_context = context.request
 
