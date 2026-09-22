@@ -1,1 +1,5 @@
-from ui.main_window import run_app\n\n\nif __name__ == "__main__":\n    run_app()\n
+from ui.main_window import run_app
+
+
+if __name__ == "__main__":
+    run_app()
