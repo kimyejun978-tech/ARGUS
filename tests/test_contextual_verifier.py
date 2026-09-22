@@ -823,5 +823,76 @@ class ContextualVerifierTests(unittest.TestCase):
         self.assertLess(rejected[0]["verification_score"], 1.0)
 
 
+    def test_digit_only_technical_homoglyph_is_not_open_set_violation(self):
+        url = "https://example.com/spec"
+        candidate = {
+            "url": url,
+            "location": "main > p",
+            "evidence_text": "W3C C14N test suite",
+            "normalized_text": "WEC CIAN test suite",
+            "technique": "HOMOGLYPH",
+            "reason": [
+                "단어 내부 숫자가 유사한 알파벳 문자 대신 사용됨"
+            ],
+            "scan_pass": "desktop-initial",
+        }
+        pages = [
+            {
+                "url": url,
+                "title": "Technical specification",
+                "elements": [
+                    {
+                        "selector": "main > p",
+                        "text": candidate["evidence_text"],
+                    }
+                ],
+            }
+        ]
+
+        verified, rejected = verify_candidates([[candidate]], pages=pages)
+
+        self.assertEqual(verified, [])
+        self.assertEqual(len(rejected), 1)
+        self.assertEqual(
+            rejected[0]["verification_status"],
+            "BENIGN_LIKELY",
+        )
+
+    def test_digit_homoglyph_with_known_ad_semantics_is_retained(self):
+        url = "https://example.com/post/1"
+        candidate = {
+            "url": url,
+            "location": "main > article > p",
+            "evidence_text": "B0NUS TEST ONLY new member promotion",
+            "normalized_text": "BONUS TEST ONLY new member promotion",
+            "technique": "HOMOGLYPH",
+            "reason": [
+                "단어 내부 숫자가 유사한 알파벳 문자 대신 사용됨"
+            ],
+            "scan_pass": "desktop-initial",
+        }
+        pages = [
+            {
+                "url": url,
+                "title": "Member promotion",
+                "elements": [
+                    {
+                        "selector": candidate["location"],
+                        "text": candidate["evidence_text"],
+                    }
+                ],
+            }
+        ]
+
+        verified, rejected = verify_candidates([[candidate]], pages=pages)
+
+        self.assertEqual(len(verified), 1)
+        self.assertEqual(rejected, [])
+        self.assertIn(
+            verified[0]["verification_status"],
+            {"CONFIRMED", "SUSPICIOUS"},
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
