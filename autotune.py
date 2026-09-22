@@ -6,6 +6,7 @@ import json
 import os
 import platform
 import time
+import tempfile
 from pathlib import Path
 
 from playwright.async_api import async_playwright
@@ -126,14 +127,26 @@ def _cache_path():
         return Path(override).expanduser()
 
     if os.name == "nt":
-        root = Path(os.getenv("LOCALAPPDATA", Path.home()))
+        local_appdata = os.getenv("LOCALAPPDATA")
+        appdata = os.getenv("APPDATA")
+
+        if local_appdata:
+            root = Path(local_appdata)
+        elif appdata:
+            root = Path(appdata)
+        else:
+            root = Path(tempfile.gettempdir())
+
         return root / "ARGUS" / "worker_tuning.json"
 
     xdg_cache = os.getenv("XDG_CACHE_HOME")
     if xdg_cache:
         root = Path(xdg_cache)
     else:
-        root = Path.home() / ".cache"
+        try:
+            root = Path.home() / ".cache"
+        except RuntimeError:
+            root = Path(tempfile.gettempdir()) / "argus-cache"
 
     return root / "argus" / "worker_tuning.json"
 
