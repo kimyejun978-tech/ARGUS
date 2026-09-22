@@ -10,6 +10,7 @@ from detectors.homoglyph import detect_homoglyph_candidates
 from detectors.jamo import detect_jamo_candidates
 from detectors.offscreen import detect_offscreen_candidates
 from detectors.transparent import detect_transparent_candidates
+from extra_exporter import export_result_extra_json
 from json_exporter import export_result_json
 from verifier.contextual import verify_candidates
 
@@ -241,6 +242,11 @@ async def main():
         candidate_groups=[verified_candidates],
     )
 
+    extra_path, extra_json = export_result_extra_json(
+        entry_url=crawl_result["entry_url"],
+        download_events=crawl_result.get("download_events", []),
+    )
+
     raw_candidate_count = sum(len(group) for group in candidate_groups)
 
     print()
@@ -256,6 +262,7 @@ async def main():
     print("정밀검사 시도 수 :", crawl_result.get("attempted_count", 0))
     print("브라우저 재시도   :", crawl_result.get("browser_retry_count", 0))
     print("다운로드 skip     :", crawl_result.get("browser_download_skip_count", 0))
+    print("자동 다운로드 의심:", crawl_result.get("automatic_download_count", 0))
     print("HTTP fetch 수     :", crawl_result.get("discovery_fetch_count", 0))
     print("HTTP HTML 분석 수 :", crawl_result.get("discovery_html_count", 0))
     print("robots 분석 수    :", crawl_result.get("discovery_robots_count", 0))
@@ -275,6 +282,7 @@ async def main():
     print("BENIGN_LIKELY    :", len(rejected_candidates))
     print("최종 findings    :", len(result_json["findings"]))
     print("result.json      :", result_path)
+    print("result_extra.json:", extra_path)
     print("탐지 시간        :", f"{elapsed_sec:.3f}초")
 
     if crawl_result.get("time_limit_reached"):
@@ -298,6 +306,26 @@ async def main():
             "HTTP discovery 실패:",
             crawl_result.get("discovery_error_count", 0),
         )
+
+    auxiliary_findings = extra_json.get("auxiliary_findings", [])
+    suspicious_downloads = [
+        item
+        for item in auxiliary_findings
+        if item.get("risk") == "SUSPICIOUS"
+    ]
+
+    if suspicious_downloads:
+        print()
+        print("==============================")
+        print("       보조 위험 동작")
+        print("==============================")
+        for index, item in enumerate(suspicious_downloads, start=1):
+            print(f"[자동 다운로드 의심 {index}]")
+            print("페이지 :", item.get("page_url", ""))
+            print("요청 URL :", item.get("download_url", ""))
+            print("파일명 :", item.get("suggested_filename", ""))
+            print("차단됨 :", item.get("blocked", True))
+            print()
 
     if verified_candidates:
         print()
