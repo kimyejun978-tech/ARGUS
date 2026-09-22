@@ -185,6 +185,46 @@ class RecoveryFixtureHandler(BaseHTTPRequestHandler):
         _write_response(self, 404, b"missing")
 
 
+class PageCapSitemapHandler(BaseHTTPRequestHandler):
+    sitemap_started = threading.Event()
+
+    def log_message(self, format, *args):
+        return
+
+    def do_GET(self):
+        path = urlsplit(self.path).path
+
+        if path == "/index.html":
+            _write_response(
+                self,
+                200,
+                b"<html><body><p>CAP TEST</p></body></html>",
+                {"Content-Type": "text/html"},
+            )
+            return
+
+        if path == "/robots.txt":
+            _write_response(self, 404, b"missing")
+            return
+
+        if path == "/sitemap.xml":
+            type(self).sitemap_started.set()
+            time.sleep(0.35)
+            _write_response(
+                self,
+                200,
+                b"<urlset></urlset>",
+                {"Content-Type": "application/xml"},
+            )
+            return
+
+        if path == "/sitemap_index.xml":
+            _write_response(self, 404, b"missing")
+            return
+
+        _write_response(self, 404, b"missing")
+
+
 class PartialNavigationHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         return
@@ -287,6 +327,76 @@ class CrawlerFailureIsolationTests(_ServerTestCase):
         self.assertTrue(
             any("redirect-loop" in item["url"] for item in result["errors"])
         )
+
+
+class CrawlerPageCapTests(_ServerTestCase):
+    handler_class = PageCapSitemapHandler
+
+    def test_page_cap_stops_inflight_sitemap_from_growing_known_queue(self):
+        self.handler_class.sitemap_started.clear()
+        bulk_urls = {
+            f"{self.origin}/bulk-{index:05d}.html"
+            for index in range(5000)
+        }
+
+        async def quick_scan(page):
+            deadline = time.perf_counter() + 2.0
+            while (
+                not self.handler_class.sitemap_started.is_set()
+                and time.perf_counter() < deadline
+            ):
+                await asyncio.sleep(0.01)
+
+            return {
+                "url": page.url,
+                "title": "cap",
+                "elements": [],
+                "links": set(),
+                "frame_count": 1,
+                "unique_element_count": 0,
+                "observation_count": 0,
+                "scan_pass_count": 5,
+                "scan_passes": [
+                    "desktop-initial",
+                    "desktop-settled",
+                    "desktop-scrolled",
+                    "mobile-settled",
+                    "mobile-scrolled",
+                ],
+                "timings": {"scan_total": 0.0},
+            }
+
+        started = time.perf_counter()
+
+        with (
+            patch.object(
+                crawler_parallel,
+                "_scan_loaded_page_multi",
+                side_effect=quick_scan,
+            ),
+            patch.object(
+                crawler_parallel,
+                "extract_sitemap_entries",
+                return_value=(bulk_urls, set()),
+            ),
+        ):
+            result = asyncio.run(
+                crawl_site(
+                    f"{self.origin}/index.html",
+                    max_pages=1,
+                    max_seconds=5,
+                    worker_count=1,
+                    discovery_worker_count=1,
+                )
+            )
+
+        elapsed = time.perf_counter() - started
+
+        self.assertEqual(result["page_count"], 1)
+        self.assertTrue(result["page_limit_reached"])
+        self.assertFalse(result["time_limit_reached"])
+        self.assertEqual(result["known_page_count"], 1)
+        self.assertLess(elapsed, 3.0)
 
 
 class CrawlerPartialRecoveryTests(_ServerTestCase):
