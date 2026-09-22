@@ -14,24 +14,27 @@ from ui.log_parser import parse_engine_line
 
 ROOT = Path(__file__).resolve().parents[1]
 
-BG = "#0b0f14"
-PANEL = "#111821"
-PANEL_2 = "#151e29"
-BORDER = "#263241"
-TEXT = "#f3f6fa"
-MUTED = "#91a0b3"
-ACCENT = "#5b8cff"
-ACCENT_HOVER = "#709bff"
-DANGER = "#e15c64"
-SUCCESS = "#62c48d"
-WARNING = "#e2aa5c"
+BG = "#07111f"
+PANEL = "#0d1b2a"
+PANEL_2 = "#11243a"
+BORDER = "#29425f"
+TEXT = "#f7fbff"
+MUTED = "#93a8c1"
+ACCENT = "#2563eb"
+ACCENT_HOVER = "#3b82f6"
+DANGER = "#b4232e"
+SUCCESS = "#1f8f5f"
+WARNING = "#d6a12f"
+NATIONAL_RED = "#c53a47"
+DETAIL_BG = "#091827"
+FONT_UI = "Malgun Gothic" if os.name == "nt" else "Segoe UI"
 
 
 class ArgusApp(tk.Tk):
     def __init__(self):
         super().__init__()
 
-        self.title("ARGUS")
+        self.title("ARGUS · 공공 웹사이트 점검 시스템")
         self.geometry("1240x820")
         self.minsize(1040, 700)
         self.configure(bg=BG)
@@ -87,7 +90,7 @@ class ArgusApp(tk.Tk):
             fieldbackground=PANEL,
             rowheight=30,
             borderwidth=0,
-            font=("Segoe UI", 9),
+            font=(FONT_UI, 9),
         )
         style.map(
             "Argus.Treeview",
@@ -99,7 +102,7 @@ class ArgusApp(tk.Tk):
             background=PANEL_2,
             foreground=MUTED,
             relief="flat",
-            font=("Segoe UI Semibold", 9),
+            font=(FONT_UI, 9, "bold"),
             padding=(8, 8),
         )
         style.map(
@@ -118,7 +121,7 @@ class ArgusApp(tk.Tk):
             foreground=MUTED,
             borderwidth=0,
             padding=(18, 9),
-            font=("Segoe UI Semibold", 9),
+            font=(FONT_UI, 9, "bold"),
         )
         style.map(
             "Argus.TNotebook.Tab",
@@ -162,31 +165,52 @@ class ArgusApp(tk.Tk):
         title_wrap = tk.Frame(header, bg=BG)
         title_wrap.pack(side="left")
 
+        identity_line = tk.Frame(title_wrap, bg=BG)
+        identity_line.pack(anchor="w", pady=(0, 7))
+        tk.Frame(identity_line, bg=ACCENT, width=30, height=4).pack(side="left")
+        tk.Frame(
+            identity_line,
+            bg=NATIONAL_RED,
+            width=12,
+            height=4,
+        ).pack(side="left", padx=(4, 0))
+
         tk.Label(
             title_wrap,
             text="ARGUS",
             bg=BG,
             fg=TEXT,
-            font=("Segoe UI Semibold", 25),
+            font=(FONT_UI, 25, "bold"),
         ).pack(anchor="w")
         tk.Label(
             title_wrap,
-            text="공공 웹사이트 은닉 광고 자동 탐지 · 분석",
+            text="공공 웹사이트 은닉광고 자동 점검 시스템",
             bg=BG,
             fg=MUTED,
-            font=("Segoe UI", 10),
-        ).pack(anchor="w", pady=(1, 0))
+            font=(FONT_UI, 10),
+        ).pack(anchor="w", pady=(2, 0))
+
+        header_right = tk.Frame(header, bg=BG)
+        header_right.pack(side="right", pady=2)
+
+        tk.Label(
+            header_right,
+            text="PUBLIC WEB INSPECTION",
+            bg=BG,
+            fg="#6f86a2",
+            font=(FONT_UI, 8, "bold"),
+        ).pack(anchor="e", pady=(0, 6))
 
         self.status_badge = tk.Label(
-            header,
+            header_right,
             textvariable=self.status_var,
             bg=PANEL_2,
             fg=MUTED,
-            padx=14,
+            padx=16,
             pady=7,
-            font=("Segoe UI Semibold", 9),
+            font=(FONT_UI, 9, "bold"),
         )
-        self.status_badge.pack(side="right", pady=4)
+        self.status_badge.pack(anchor="e")
 
         target_panel = tk.Frame(
             outer,
@@ -201,10 +225,10 @@ class ArgusApp(tk.Tk):
 
         tk.Label(
             target_inner,
-            text="검사 대상",
+            text="점검 대상 URL / 파일",
             bg=PANEL,
             fg=MUTED,
-            font=("Segoe UI Semibold", 9),
+            font=(FONT_UI, 9, "bold"),
         ).pack(anchor="w")
 
         entry_row = tk.Frame(target_inner, bg=PANEL)
@@ -263,9 +287,9 @@ class ArgusApp(tk.Tk):
             entry_row,
             "중지",
             self.cancel_scan,
-            bg="#3a2025",
-            active_bg="#4a282e",
-            fg="#ffb8bd",
+            bg="#3a171d",
+            active_bg="#512027",
+            fg="#ffc3c7",
         )
         self.cancel_button.pack(side="left")
         self.cancel_button.configure(state="disabled")
@@ -275,10 +299,10 @@ class ArgusApp(tk.Tk):
         for column in range(4):
             cards.grid_columnconfigure(column, weight=1, uniform="cards")
 
-        self._stat_card(cards, 0, "상태", self.status_var)
-        self._stat_card(cards, 1, "완료 페이지", self.pages_var)
-        self._stat_card(cards, 2, "탐지 결과", self.findings_var)
-        self._stat_card(cards, 3, "경과 시간", self.elapsed_var)
+        self._stat_card(cards, 0, "운영 상태", self.status_var)
+        self._stat_card(cards, 1, "분석 완료", self.pages_var)
+        self._stat_card(cards, 2, "공식 탐지", self.findings_var)
+        self._stat_card(cards, 3, "소요 시간", self.elapsed_var)
 
         progress_panel = tk.Frame(
             outer,
@@ -296,17 +320,17 @@ class ArgusApp(tk.Tk):
 
         tk.Label(
             top_line,
-            text="현재 작업",
+            text="실시간 점검 현황",
             bg=PANEL,
             fg=MUTED,
-            font=("Segoe UI Semibold", 9),
+            font=(FONT_UI, 9, "bold"),
         ).pack(side="left")
         tk.Label(
             top_line,
             textvariable=self.autotune_var,
             bg=PANEL,
             fg=MUTED,
-            font=("Segoe UI", 9),
+            font=(FONT_UI, 9),
         ).pack(side="right")
 
         tk.Label(
@@ -316,7 +340,7 @@ class ArgusApp(tk.Tk):
             fg=TEXT,
             anchor="w",
             justify="left",
-            font=("Segoe UI", 10),
+            font=(FONT_UI, 10),
         ).pack(fill="x", pady=(7, 10))
 
         self.progress = ttk.Progressbar(
@@ -341,7 +365,7 @@ class ArgusApp(tk.Tk):
 
         self.results_tab_button = tk.Button(
             tab_header,
-            text="탐지 결과",
+            text="공식 탐지 결과",
             command=lambda: self._show_tab("results"),
             bg=PANEL,
             fg=TEXT,
@@ -350,7 +374,7 @@ class ArgusApp(tk.Tk):
             relief="flat",
             bd=0,
             cursor="hand2",
-            font=("Segoe UI Semibold", 9),
+            font=(FONT_UI, 9, "bold"),
             padx=18,
             pady=9,
         )
@@ -358,7 +382,7 @@ class ArgusApp(tk.Tk):
 
         self.aux_tab_button = tk.Button(
             tab_header,
-            text="보조 진단 (0)",
+            text="보조 위험 진단 (0)",
             command=lambda: self._show_tab("aux"),
             bg=PANEL_2,
             fg=MUTED,
@@ -367,7 +391,7 @@ class ArgusApp(tk.Tk):
             relief="flat",
             bd=0,
             cursor="hand2",
-            font=("Segoe UI Semibold", 9),
+            font=(FONT_UI, 9, "bold"),
             padx=18,
             pady=9,
         )
@@ -375,7 +399,7 @@ class ArgusApp(tk.Tk):
 
         self.log_tab_button = tk.Button(
             tab_header,
-            text="실행 로그",
+            text="시스템 로그",
             command=lambda: self._show_tab("log"),
             bg=PANEL_2,
             fg=MUTED,
@@ -384,7 +408,7 @@ class ArgusApp(tk.Tk):
             relief="flat",
             bd=0,
             cursor="hand2",
-            font=("Segoe UI Semibold", 9),
+            font=(FONT_UI, 9, "bold"),
             padx=18,
             pady=9,
         )
@@ -410,10 +434,10 @@ class ArgusApp(tk.Tk):
 
         self.result_summary_label = tk.Label(
             result_toolbar,
-            text="CONFIRMED 0   ·   SUSPICIOUS 0   ·   BENIGN_LIKELY 0",
+            text="확정 탐지 0   ·   추가 검토 0   ·   정상 가능성 0",
             bg=PANEL,
             fg=MUTED,
-            font=("Segoe UI", 9),
+            font=(FONT_UI, 9),
         )
         self.result_summary_label.pack(side="left")
 
@@ -462,27 +486,27 @@ class ArgusApp(tk.Tk):
             bg=PANEL,
             fg="#667385",
             justify="center",
-            font=("Segoe UI", 10),
+            font=(FONT_UI, 10),
         )
         self.empty_results_label.place(relx=0.5, rely=0.48, anchor="center")
 
         detail_panel = tk.Frame(
             results_frame,
-            bg="#0d141d",
+            bg=DETAIL_BG,
             highlightbackground=BORDER,
             highlightthickness=1,
         )
         detail_panel.pack(fill="x", padx=12, pady=(0, 12))
 
-        detail_header = tk.Frame(detail_panel, bg="#0d141d")
+        detail_header = tk.Frame(detail_panel, bg=DETAIL_BG)
         detail_header.pack(fill="x", padx=14, pady=(10, 6))
 
         tk.Label(
             detail_header,
             text="선택 항목 상세",
-            bg="#0d141d",
+            bg=DETAIL_BG,
             fg=MUTED,
-            font=("Segoe UI Semibold", 9),
+            font=(FONT_UI, 9, "bold"),
         ).pack(side="left")
 
         self.copy_detail_button = self._button(
@@ -495,7 +519,7 @@ class ArgusApp(tk.Tk):
         self.copy_detail_button.pack(side="right")
         self.copy_detail_button.configure(state="disabled")
 
-        detail_body = tk.Frame(detail_panel, bg="#0d141d")
+        detail_body = tk.Frame(detail_panel, bg=DETAIL_BG)
         detail_body.pack(fill="x", padx=14, pady=(0, 10))
         detail_body.grid_columnconfigure(1, weight=1)
 
@@ -509,10 +533,10 @@ class ArgusApp(tk.Tk):
 
         tk.Label(
             aux_toolbar,
-            text="공식 result.json과 분리된 보조 행동 진단 · 자동 다운로드는 저장하지 않고 차단합니다.",
+            text="공식 판정과 분리된 보조 위험 진단 · 자동 다운로드는 저장하지 않고 차단합니다.",
             bg=PANEL,
             fg=MUTED,
-            font=("Segoe UI", 9),
+            font=(FONT_UI, 9),
         ).pack(side="left")
 
         aux_tree_wrap = tk.Frame(aux_frame, bg=PANEL)
@@ -550,13 +574,13 @@ class ArgusApp(tk.Tk):
             bg=PANEL,
             fg="#667385",
             justify="center",
-            font=("Segoe UI", 10),
+            font=(FONT_UI, 10),
         )
         self.empty_aux_label.place(relx=0.5, rely=0.48, anchor="center")
 
         self.log_text = tk.Text(
             log_frame,
-            bg="#090d12",
+            bg="#06101c",
             fg="#cdd6e1",
             insertbackground=TEXT,
             relief="flat",
@@ -572,22 +596,22 @@ class ArgusApp(tk.Tk):
         tk.Label(
             parent,
             text=label,
-            bg="#0d141d",
+            bg=DETAIL_BG,
             fg="#6f7f93",
             anchor="nw",
-            font=("Segoe UI Semibold", 8),
+            font=(FONT_UI, 8, "bold"),
             width=10,
         ).grid(row=row, column=0, sticky="nw", pady=2)
 
         tk.Label(
             parent,
             textvariable=variable,
-            bg="#0d141d",
+            bg=DETAIL_BG,
             fg=TEXT,
             anchor="w",
             justify="left",
             wraplength=980,
-            font=("Segoe UI", 9),
+            font=(FONT_UI, 9),
         ).grid(row=row, column=1, sticky="ew", pady=2)
 
     def _on_result_select(self, _event=None):
@@ -662,7 +686,7 @@ class ArgusApp(tk.Tk):
             relief="flat",
             bd=0,
             cursor="hand2",
-            font=("Segoe UI Semibold", 9),
+            font=(FONT_UI, 9, "bold"),
             padx=16,
             pady=9,
         )
@@ -687,14 +711,14 @@ class ArgusApp(tk.Tk):
             text=label,
             bg=PANEL,
             fg=MUTED,
-            font=("Segoe UI", 9),
+            font=(FONT_UI, 9),
         ).pack(anchor="w", padx=16, pady=(13, 2))
         tk.Label(
             card,
             textvariable=variable,
             bg=PANEL,
             fg=TEXT,
-            font=("Segoe UI Semibold", 17),
+            font=(FONT_UI, 17, "bold"),
         ).pack(anchor="w", padx=16, pady=(0, 13))
 
     def _browse_file(self):
@@ -736,7 +760,7 @@ class ArgusApp(tk.Tk):
         self.suspicious_var.set("0")
         self.benign_var.set("0")
         self.aux_download_var.set("0")
-        self.aux_tab_button.configure(text="보조 진단 (0)")
+        self.aux_tab_button.configure(text="보조 위험 진단 (0)")
         self.detail_technique_var.set("-")
         self.detail_evidence_var.set("결과 항목을 선택하면 상세 정보가 표시됩니다.")
         self.detail_url_var.set("-")
@@ -752,7 +776,7 @@ class ArgusApp(tk.Tk):
         self.empty_aux_label.place(relx=0.5, rely=0.48, anchor="center")
         self._clear_log()
 
-        self.status_badge.configure(bg="#172743", fg="#a9c3ff")
+        self.status_badge.configure(bg="#102d57", fg="#d9e7ff")
         self.start_button.configure(state="disabled")
         self.browse_button.configure(state="disabled")
         self.cancel_button.configure(state="normal")
@@ -824,7 +848,7 @@ class ArgusApp(tk.Tk):
 
         self.cancel_requested = True
         self.status_var.set("중지 중")
-        self.status_badge.configure(bg="#38252a", fg="#ffb8bd")
+        self.status_badge.configure(bg="#38252a", fg="#ffc3c7")
         self.current_url_var.set("실행 중인 검사 작업을 종료하고 있습니다…")
         self.cancel_button.configure(state="disabled")
 
@@ -901,7 +925,7 @@ class ArgusApp(tk.Tk):
             self.findings_var.set(value)
         elif key == "자동 다운로드 의심":
             self.aux_download_var.set(value)
-            self.aux_tab_button.configure(text=f"보조 진단 ({value})")
+            self.aux_tab_button.configure(text=f"보조 위험 진단 ({value})")
         elif key == "result.json":
             self.result_path = Path(value.strip())
         elif key == "result_extra.json":
@@ -917,20 +941,20 @@ class ArgusApp(tk.Tk):
 
         if self.cancel_requested:
             self.status_var.set("중지됨")
-            self.status_badge.configure(bg="#38252a", fg="#ffb8bd")
+            self.status_badge.configure(bg="#38252a", fg="#ffc3c7")
             self.current_url_var.set("사용자가 검사를 중지했습니다.")
             return
 
         if return_code != 0:
             self.status_var.set("오류")
-            self.status_badge.configure(bg="#38252a", fg="#ffb8bd")
+            self.status_badge.configure(bg="#38252a", fg="#ffc3c7")
             self.current_url_var.set(
                 f"탐지 엔진이 종료 코드 {return_code}로 종료되었습니다."
             )
             return
 
         self.status_var.set("완료")
-        self.status_badge.configure(bg="#163126", fg="#9de2ba")
+        self.status_badge.configure(bg="#123927", fg="#b9eccd")
         self.current_url_var.set("검사가 완료되었습니다.")
         self._load_result_table()
         self._load_aux_table()
@@ -941,7 +965,7 @@ class ArgusApp(tk.Tk):
         self.progress.configure(mode="determinate", value=0)
         self._restore_controls()
         self.status_var.set("오류")
-        self.status_badge.configure(bg="#38252a", fg="#ffb8bd")
+        self.status_badge.configure(bg="#38252a", fg="#ffc3c7")
         self.current_url_var.set(message)
         self._append_log(f"[GUI] {message}")
 
@@ -1039,7 +1063,7 @@ class ArgusApp(tk.Tk):
 
         self.aux_download_var.set(str(suspicious_count))
         self.aux_tab_button.configure(
-            text=f"보조 진단 ({suspicious_count})"
+            text=f"보조 위험 진단 ({suspicious_count})"
         )
 
         if findings:
@@ -1050,9 +1074,9 @@ class ArgusApp(tk.Tk):
     def _update_result_summary(self):
         self.result_summary_label.configure(
             text=(
-                f"CONFIRMED {self.confirmed_var.get()}   ·   "
-                f"SUSPICIOUS {self.suspicious_var.get()}   ·   "
-                f"BENIGN_LIKELY {self.benign_var.get()}"
+                f"확정 탐지 {self.confirmed_var.get()}   ·   "
+                f"추가 검토 {self.suspicious_var.get()}   ·   "
+                f"정상 가능성 {self.benign_var.get()}"
             )
         )
 
