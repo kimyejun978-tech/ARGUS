@@ -21,6 +21,19 @@ from verifier.contextual import verify_candidates
 TECHNIQUES = ("TRANSPARENT", "OFFSCREEN", "JAMO", "HOMOGLYPH")
 
 
+def _normalize_profile_target(target):
+    """main.py와 동일하게 scheme 없는 도메인은 HTTPS URL로 정규화한다."""
+    target = str(target or "").strip()
+    if target.startswith(("http://", "https://", "file://")):
+        return target
+
+    path = Path(target)
+    if path.exists():
+        return path.resolve().as_uri()
+
+    return "https://" + target
+
+
 def _reason_key(reason):
     text = str(reason or "").strip()
     if not text:
@@ -468,9 +481,11 @@ def main():
     if args.max_pages < 1:
         parser.error("--max-pages는 1 이상이어야 합니다")
 
+    target = _normalize_profile_target(args.url)
+
     asyncio.run(
         run(
-            args.url,
+            target,
             args.max_pages,
             args.max_seconds,
             args.workers,
