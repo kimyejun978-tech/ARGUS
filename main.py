@@ -24,6 +24,11 @@ DISCOVERY_WORKERS = max(0, int(os.getenv("ARGUS_DISCOVERY_WORKERS", "8")))
 
 
 def normalize_target(target):
+    target = str(target or "").strip()
+
+    if not target:
+        raise ValueError("검사할 URL 또는 파일을 입력해야 합니다.")
+
     if target.startswith(("http://", "https://", "file://")):
         return target
 
@@ -99,8 +104,14 @@ async def main():
     print("            ARGUS")
     print("==============================")
 
-    target = input("검사할 URL 또는 파일: ").strip()
-    target = normalize_target(target)
+    while True:
+        raw_target = input("검사할 URL 또는 파일: ")
+
+        try:
+            target = normalize_target(raw_target)
+            break
+        except ValueError as exc:
+            print(f"[ARGUS] 입력 오류 : {exc}")
 
     started = datetime.now().astimezone()
     start_timer = time.perf_counter()
