@@ -987,8 +987,13 @@ async def crawl_site(
         all_tasks = discovery_tasks + browser_tasks + [monitor_task]
 
         try:
+            # completion monitor / page cap / watchdog 중 어느 쪽이든 stop_event를
+            # 세우는 즉시 상위 crawl도 종료 절차로 들어간다. 이전 구현은
+            # all_tasks 전체가 끝나기를 기다렸기 때문에, page cap을 이미
+            # 채운 뒤 다른 worker 하나가 느린 페이지에 걸리면 max_seconds까지
+            # 불필요하게 기다릴 수 있었다.
             if max_seconds is None:
-                await asyncio.gather(*all_tasks)
+                await stop_event.wait()
             else:
                 remaining = time_remaining()
 
@@ -996,16 +1001,12 @@ async def crawl_site(
                     time_limit_reached = True
                     stop_event.set()
                 else:
-                    # asyncio.wait_for(gather(...))는 timeout 시 child task의
-                    # cancellation 완료까지 기다리므로 Playwright evaluate가
-                    # renderer에서 막혀 있으면 watchdog을 수십 분 초과할 수 있다.
-                    # asyncio.wait는 deadline에 즉시 제어권을 돌려준다.
-                    _, pending = await asyncio.wait(
-                        all_tasks,
-                        timeout=remaining,
-                    )
-
-                    if pending:
+                    try:
+                        await asyncio.wait_for(
+                            stop_event.wait(),
+                            timeout=remaining,
+                        )
+                    except TimeoutError:
                         time_limit_reached = True
                         stop_event.set()
 
