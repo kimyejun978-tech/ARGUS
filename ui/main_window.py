@@ -41,6 +41,7 @@ class ArgusApp(tk.Tk):
         self.started_at = None
         self.cancel_requested = False
         self.result_path = ROOT / "result.json"
+        self.extra_result_path = ROOT / "result_extra.json"
 
         self.status_var = tk.StringVar(value="대기")
         self.pages_var = tk.StringVar(value="0")
@@ -51,6 +52,7 @@ class ArgusApp(tk.Tk):
         self.confirmed_var = tk.StringVar(value="0")
         self.suspicious_var = tk.StringVar(value="0")
         self.benign_var = tk.StringVar(value="0")
+        self.aux_download_var = tk.StringVar(value="0")
         self.detail_technique_var = tk.StringVar(value="-")
         self.detail_evidence_var = tk.StringVar(value="결과 항목을 선택하면 상세 정보가 표시됩니다.")
         self.detail_url_var = tk.StringVar(value="-")
@@ -354,6 +356,23 @@ class ArgusApp(tk.Tk):
         )
         self.results_tab_button.pack(side="left")
 
+        self.aux_tab_button = tk.Button(
+            tab_header,
+            text="보조 진단 (0)",
+            command=lambda: self._show_tab("aux"),
+            bg=PANEL_2,
+            fg=MUTED,
+            activebackground="#1b2734",
+            activeforeground=TEXT,
+            relief="flat",
+            bd=0,
+            cursor="hand2",
+            font=("Segoe UI Semibold", 9),
+            padx=18,
+            pady=9,
+        )
+        self.aux_tab_button.pack(side="left")
+
         self.log_tab_button = tk.Button(
             tab_header,
             text="실행 로그",
@@ -375,11 +394,14 @@ class ArgusApp(tk.Tk):
         self.tab_content.pack(fill="both", expand=True)
 
         results_frame = tk.Frame(self.tab_content, bg=PANEL)
+        aux_frame = tk.Frame(self.tab_content, bg=PANEL)
         log_frame = tk.Frame(self.tab_content, bg=PANEL)
         self.results_frame = results_frame
+        self.aux_frame = aux_frame
         self.log_frame = log_frame
 
         results_frame.place(x=0, y=0, relwidth=1, relheight=1)
+        aux_frame.place(x=0, y=0, relwidth=1, relheight=1)
         log_frame.place(x=0, y=0, relwidth=1, relheight=1)
         results_frame.tkraise()
 
@@ -482,6 +504,56 @@ class ArgusApp(tk.Tk):
         self._detail_row(detail_body, 2, "페이지", self.detail_url_var)
         self._detail_row(detail_body, 3, "위치", self.detail_location_var)
 
+        aux_toolbar = tk.Frame(aux_frame, bg=PANEL)
+        aux_toolbar.pack(fill="x", padx=12, pady=(12, 8))
+
+        tk.Label(
+            aux_toolbar,
+            text="공식 result.json과 분리된 보조 행동 진단 · 자동 다운로드는 저장하지 않고 차단합니다.",
+            bg=PANEL,
+            fg=MUTED,
+            font=("Segoe UI", 9),
+        ).pack(side="left")
+
+        aux_tree_wrap = tk.Frame(aux_frame, bg=PANEL)
+        aux_tree_wrap.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+
+        aux_columns = ("risk", "page", "download", "filename")
+        self.aux_tree = ttk.Treeview(
+            aux_tree_wrap,
+            columns=aux_columns,
+            show="headings",
+            style="Argus.Treeview",
+        )
+        self.aux_tree.heading("risk", text="판정")
+        self.aux_tree.heading("page", text="발생 페이지")
+        self.aux_tree.heading("download", text="다운로드 요청")
+        self.aux_tree.heading("filename", text="파일명")
+        self.aux_tree.column("risk", width=110, minwidth=100, stretch=False)
+        self.aux_tree.column("page", width=360, minwidth=250, stretch=True)
+        self.aux_tree.column("download", width=420, minwidth=280, stretch=True)
+        self.aux_tree.column("filename", width=230, minwidth=160, stretch=True)
+        self.aux_tree.pack(fill="both", expand=True)
+        self.aux_tree.tag_configure("SUSPICIOUS", foreground="#ffb08f")
+        self.aux_tree.tag_configure("INFO", foreground=MUTED)
+        self.aux_tree.bind(
+            "<MouseWheel>",
+            lambda event: self.aux_tree.yview_scroll(
+                int(-1 * (event.delta / 120)),
+                "units",
+            ),
+        )
+
+        self.empty_aux_label = tk.Label(
+            aux_tree_wrap,
+            text="보조 진단 항목이 없습니다.\n페이지가 자동 다운로드를 시도하면 여기에 표시됩니다.",
+            bg=PANEL,
+            fg="#667385",
+            justify="center",
+            font=("Segoe UI", 10),
+        )
+        self.empty_aux_label.place(relx=0.5, rely=0.48, anchor="center")
+
         self.log_text = tk.Text(
             log_frame,
             bg="#090d12",
@@ -545,15 +617,22 @@ class ArgusApp(tk.Tk):
         self.update()
 
     def _show_tab(self, name):
+        self.results_tab_button.configure(bg=PANEL_2, fg=MUTED)
+        self.aux_tab_button.configure(bg=PANEL_2, fg=MUTED)
+        self.log_tab_button.configure(bg=PANEL_2, fg=MUTED)
+
         if name == "log":
             self.log_frame.tkraise()
             self.log_tab_button.configure(bg=PANEL, fg=TEXT)
-            self.results_tab_button.configure(bg=PANEL_2, fg=MUTED)
+            return
+
+        if name == "aux":
+            self.aux_frame.tkraise()
+            self.aux_tab_button.configure(bg=PANEL, fg=TEXT)
             return
 
         self.results_frame.tkraise()
         self.results_tab_button.configure(bg=PANEL, fg=TEXT)
-        self.log_tab_button.configure(bg=PANEL_2, fg=MUTED)
 
     def _scrollbar(self, parent, *, orient, command):
         return tk.Scrollbar(
@@ -645,6 +724,7 @@ class ArgusApp(tk.Tk):
         self.cancel_requested = False
         self.started_at = time.monotonic()
         self.result_path = ROOT / "result.json"
+        self.extra_result_path = ROOT / "result_extra.json"
 
         self.status_var.set("검사 중")
         self.pages_var.set("0")
@@ -655,6 +735,8 @@ class ArgusApp(tk.Tk):
         self.confirmed_var.set("0")
         self.suspicious_var.set("0")
         self.benign_var.set("0")
+        self.aux_download_var.set("0")
+        self.aux_tab_button.configure(text="보조 진단 (0)")
         self.detail_technique_var.set("-")
         self.detail_evidence_var.set("결과 항목을 선택하면 상세 정보가 표시됩니다.")
         self.detail_url_var.set("-")
@@ -665,6 +747,9 @@ class ArgusApp(tk.Tk):
 
         for item in self.tree.get_children():
             self.tree.delete(item)
+        for item in self.aux_tree.get_children():
+            self.aux_tree.delete(item)
+        self.empty_aux_label.place(relx=0.5, rely=0.48, anchor="center")
         self._clear_log()
 
         self.status_badge.configure(bg="#172743", fg="#a9c3ff")
@@ -814,8 +899,13 @@ class ArgusApp(tk.Tk):
             self._update_result_summary()
         elif key == "최종 findings":
             self.findings_var.set(value)
+        elif key == "자동 다운로드 의심":
+            self.aux_download_var.set(value)
+            self.aux_tab_button.configure(text=f"보조 진단 ({value})")
         elif key == "result.json":
             self.result_path = Path(value.strip())
+        elif key == "result_extra.json":
+            self.extra_result_path = Path(value.strip())
         elif key == "탐지 시간":
             self.elapsed_var.set(value)
 
@@ -843,6 +933,7 @@ class ArgusApp(tk.Tk):
         self.status_badge.configure(bg="#163126", fg="#9de2ba")
         self.current_url_var.set("검사가 완료되었습니다.")
         self._load_result_table()
+        self._load_aux_table()
 
     def _finish_error(self, message):
         self.process = None
@@ -908,6 +999,53 @@ class ArgusApp(tk.Tk):
 
         self.findings_var.set(str(len(findings)))
         self.open_result_button.configure(state="normal")
+
+    def _load_aux_table(self):
+        path = self.extra_result_path
+        if not path.is_absolute():
+            path = ROOT / path
+
+        if not path.exists():
+            return
+
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            self._append_log(f"[GUI] result_extra.json 읽기 실패: {exc}")
+            return
+
+        findings = data.get("auxiliary_findings", [])
+
+        for item in self.aux_tree.get_children():
+            self.aux_tree.delete(item)
+
+        suspicious_count = 0
+        for finding in findings:
+            risk = finding.get("risk", "INFO")
+            if risk == "SUSPICIOUS":
+                suspicious_count += 1
+
+            self.aux_tree.insert(
+                "",
+                "end",
+                values=(
+                    risk,
+                    finding.get("page_url", ""),
+                    finding.get("download_url", ""),
+                    finding.get("suggested_filename", ""),
+                ),
+                tags=(risk,),
+            )
+
+        self.aux_download_var.set(str(suspicious_count))
+        self.aux_tab_button.configure(
+            text=f"보조 진단 ({suspicious_count})"
+        )
+
+        if findings:
+            self.empty_aux_label.place_forget()
+        else:
+            self.empty_aux_label.place(relx=0.5, rely=0.48, anchor="center")
 
     def _update_result_summary(self):
         self.result_summary_label.configure(
