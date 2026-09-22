@@ -10,14 +10,14 @@ from pathlib import Path
 
 from playwright.async_api import async_playwright
 
-from crawler import DOM_SCAN_SCRIPT
+from crawler import DOM_SCAN_SCRIPT, _scan_loaded_page_multi
 
 
-AUTO_TUNE_SCHEMA = 1
+AUTO_TUNE_SCHEMA = 2
 AUTO_TUNE_CANDIDATES = (4, 6, 8)
 AUTO_TUNE_MARGIN = 0.05
-AUTO_TUNE_SAMPLE_PAGES = 16
-AUTO_TUNE_ROWS = 420
+AUTO_TUNE_SAMPLE_PAGES = 8
+AUTO_TUNE_ROWS = 90
 AUTO_TUNE_PASSES = 5
 AUTO_TUNE_CACHE_MAX_AGE_SEC = 30 * 24 * 60 * 60
 
@@ -139,25 +139,29 @@ def _cache_path():
 
 
 def _candidate_workers(snapshot):
+    """
+    하드웨어로 불가능/비효율 후보를 먼저 줄이고, 남은 후보만 실측한다.
+
+    강한 PC에서 4/6/8을 모두 재는 방식은 시작 시간이 길고, 순수 DOM CPU
+    micro-benchmark가 실제 크롤러의 navigation/대기 병렬성을 과소평가할 수 있다.
+    그래서 저사양은 4, 중간급은 4/6, 충분한 CPU/RAM은 6/8만 비교한다.
+    """
     cpu_count = int(snapshot.get("cpu_count") or 1)
     total_mb = snapshot.get("memory_total_mb")
 
-    max_worker = 8
+    if cpu_count <= 4:
+        return [4]
 
-    if cpu_count <= 2:
-        max_worker = 4
-    elif total_mb is not None and total_mb < 6144:
-        max_worker = 4
-    elif total_mb is not None and total_mb < 10240:
-        max_worker = 6
+    if total_mb is not None and total_mb < 6144:
+        return [4]
 
-    candidates = [
-        worker
-        for worker in AUTO_TUNE_CANDIDATES
-        if worker <= max_worker
-    ]
+    if cpu_count <= 8:
+        return [4, 6]
 
-    return candidates or [4]
+    if total_mb is not None and total_mb < 12288:
+        return [4, 6]
+
+    return [6, 8]
 
 
 def _benchmark_html():
@@ -210,78 +214,68 @@ main {{ max-width: 1100px; margin: auto; position: relative; }}
 </html>"""
 
 
-async def _scan_probe_page(context, html_text, semaphore):
-    async with semaphore:
+async def _benchmark_candidate(context, worker_count, html_text):
+    """
+    실제 crawler와 비슷하게 worker별 Page를 하나씩 재사용하며
+    전체 5-pass(_scan_loaded_page_multi)를 수행한다.
+
+    이전 probe는 DOM evaluate만 반복해 CPU 경합만 측정했고, 실제 크롤러에서
+    병렬화 이득이 큰 DOM 안정 대기/스크롤/링크/iframe 단계를 반영하지 못했다.
+    """
+    queue = asyncio.Queue()
+    for sample_index in range(AUTO_TUNE_SAMPLE_PAGES):
+        queue.put_nowait(sample_index)
+
+    observations = 0
+    errors = 0
+    observation_lock = asyncio.Lock()
+
+    async def worker():
+        nonlocal observations, errors
         page = await context.new_page()
 
         try:
-            await page.set_content(
-                html_text,
-                wait_until="domcontentloaded",
-                timeout=5000,
-            )
+            while True:
+                try:
+                    queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
 
-            total_observations = 0
-
-            for pass_index in range(AUTO_TUNE_PASSES):
-                if pass_index < 3:
-                    viewport = {"width": 1280, "height": 720}
-                else:
-                    viewport = {"width": 390, "height": 844}
-
-                await page.set_viewport_size(viewport)
-
-                if pass_index in {2, 4}:
-                    await page.evaluate(
-                        "window.scrollTo(0, document.body.scrollHeight)"
+                try:
+                    await page.set_content(
+                        html_text,
+                        wait_until="domcontentloaded",
+                        timeout=5000,
                     )
-                else:
-                    await page.evaluate("window.scrollTo(0, 0)")
+                    result = await _scan_loaded_page_multi(page)
 
-                elements = await page.main_frame.evaluate(DOM_SCAN_SCRIPT)
-                total_observations += len(elements)
-
-            return {
-                "ok": True,
-                "observations": total_observations,
-            }
-        except Exception as exc:
-            return {
-                "ok": False,
-                "error": str(exc),
-                "observations": 0,
-            }
+                    async with observation_lock:
+                        observations += int(
+                            result.get("observation_count", 0)
+                        )
+                except Exception:
+                    async with observation_lock:
+                        errors += 1
+                finally:
+                    queue.task_done()
         finally:
             try:
                 await page.close()
             except Exception:
                 pass
 
-
-async def _benchmark_candidate(context, worker_count, html_text):
-    semaphore = asyncio.Semaphore(worker_count)
     started = time.perf_counter()
-
-    results = await asyncio.gather(
-        *[
-            _scan_probe_page(context, html_text, semaphore)
-            for _ in range(AUTO_TUNE_SAMPLE_PAGES)
-        ]
+    active_workers = min(worker_count, AUTO_TUNE_SAMPLE_PAGES)
+    await asyncio.gather(
+        *[worker() for _ in range(active_workers)]
     )
-
     elapsed = max(time.perf_counter() - started, 0.001)
-    errors = [item for item in results if not item.get("ok")]
-    observations = sum(
-        item.get("observations", 0)
-        for item in results
-        if item.get("ok")
-    )
 
     return {
         "workers": worker_count,
         "elapsed_sec": round(elapsed, 4),
         "pages_per_sec": round(AUTO_TUNE_SAMPLE_PAGES / elapsed, 4),
-        "errors": len(errors),
+        "errors": errors,
         "observations": observations,
     }
 
@@ -415,7 +409,8 @@ async def auto_tune_workers(fallback_workers):
                 ignore_https_errors=True,
             )
 
-            # 첫 candidate에만 브라우저/JIT warm-up 비용이 몰리지 않게 한 번 예열한다.
+            # 첫 candidate에만 브라우저/JIT 비용이 몰리지 않게 가벼운 DOM
+            # evaluate로 엔진만 예열한다. 전체 5-pass 예열은 시작 시간을 늘린다.
             warmup = await context.new_page()
             try:
                 await warmup.set_content(
