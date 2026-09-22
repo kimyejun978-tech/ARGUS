@@ -13,7 +13,7 @@ _SUMMARY_RE = re.compile(
     r"^\s*(?P<key>"
     r"브라우저 worker|discovery worker|발견 고유 URL 수|정밀검사 시도 수|"
     r"분석 완료 페이지|분석 frame 수|CONFIRMED|SUSPICIOUS|BENIGN_LIKELY|"
-    r"최종 findings|result\.json|탐지 시간"
+    r"최종 findings|자동 다운로드 의심|result\.json|result_extra\.json|탐지 시간"
     r")\s*:\s*(?P<value>.+?)\s*$"
 )
 _AUTOTUNE_RE = re.compile(
