@@ -66,6 +66,44 @@ def _browser_context_options():
     }
 
 
+def _build_download_event(
+    *,
+    worker_id,
+    requested_url,
+    page_url,
+    download_url,
+    suggested_filename,
+):
+    """Build an auxiliary diagnostic without persisting the downloaded file."""
+
+    requested = _canonicalize_pipeline_url(requested_url or "")
+    download_target = _canonicalize_pipeline_url(download_url or "")
+    source_page = page_url or requested_url or ""
+
+    if source_page == "about:blank":
+        source_page = requested_url or ""
+
+    page_triggered = bool(
+        requested
+        and download_target
+        and requested != download_target
+    )
+
+    return {
+        "type": "AUTO_DOWNLOAD_ATTEMPT"
+        if page_triggered
+        else "DOWNLOAD_NAVIGATION",
+        "risk": "SUSPICIOUS" if page_triggered else "INFO",
+        "worker": int(worker_id),
+        "page_url": source_page,
+        "requested_url": requested_url or "",
+        "download_url": download_url or "",
+        "suggested_filename": suggested_filename or "",
+        "page_triggered": page_triggered,
+        "blocked": True,
+    }
+
+
 def _is_transient_browser_error(exc) -> bool:
     message = str(exc).lower()
     return any(hint in message for hint in TRANSIENT_BROWSER_ERROR_HINTS)
@@ -195,6 +233,8 @@ async def crawl_site(
 
     pages = []
     errors = []
+    download_events = []
+    worker_requested_urls = {}
 
     state_lock = asyncio.Lock()
     stop_event = asyncio.Event()
@@ -345,6 +385,34 @@ async def crawl_site(
                 and active_discovery_workers == 0
             )
 
+    def attach_download_observer(page, worker_id):
+        def on_download(download):
+            requested_url = worker_requested_urls.get(worker_id, "")
+            event = _build_download_event(
+                worker_id=worker_id,
+                requested_url=requested_url,
+                page_url=page.url,
+                download_url=download.url,
+                suggested_filename=download.suggested_filename,
+            )
+            download_events.append(event)
+
+            if event["page_triggered"]:
+                print(
+                    "[ARGUS][AUX] 자동 다운로드 시도 차단 : "
+                    f"{event['page_url']} -> {event['download_url']}"
+                )
+
+            async def cancel_download():
+                try:
+                    await download.cancel()
+                except Exception:
+                    pass
+
+            asyncio.create_task(cancel_download())
+
+        page.on("download", on_download)
+
     await schedule_page(canonical_entry, source="entry")
     await schedule_standard_resources(canonical_entry)
 
@@ -355,10 +423,12 @@ async def crawl_site(
         )
         request_context = context.request
 
-        browser_pages = [
-            await context.new_page()
-            for _ in range(worker_count)
-        ]
+        browser_pages = []
+        for index in range(worker_count):
+            worker_id = index + 1
+            page = await context.new_page()
+            attach_download_observer(page, worker_id)
+            browser_pages.append(page)
 
         async def discovery_worker(worker_id):
             nonlocal active_discovery_workers
@@ -546,6 +616,7 @@ async def crawl_site(
 
                 try:
                     page = await context.new_page()
+                    attach_download_observer(page, worker_id)
                     browser_page_recreate_count += 1
                     return True
                 except Exception as exc:
@@ -632,6 +703,7 @@ async def crawl_site(
 
                     page_work_started = time.perf_counter()
                     navigation_started = time.perf_counter()
+                    worker_requested_urls[worker_id] = requested_url
 
                     try:
                         await page.set_viewport_size(
@@ -1132,6 +1204,13 @@ async def crawl_site(
         "browser_timeout_retry_count": browser_timeout_retry_count,
         "browser_partial_recovery_count": browser_partial_recovery_count,
         "browser_download_skip_count": browser_download_skip_count,
+        "download_event_count": len(download_events),
+        "automatic_download_count": sum(
+            1
+            for event in download_events
+            if event.get("page_triggered")
+        ),
+        "download_events": download_events,
         "browser_page_recreate_count": browser_page_recreate_count,
         "browser_page_recreate_error_count": browser_page_recreate_error_count,
         "forced_cleanup": forced_cleanup,
