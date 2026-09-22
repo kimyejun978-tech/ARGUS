@@ -150,7 +150,6 @@ def expectation_for(technique, family):
         "HOMOGLYPH": {
             "cyrillic-mixed",
             "fullwidth-plain",
-            "digit-internal",
             "greek-mixed",
             "mobile-only-mixed",
         },
