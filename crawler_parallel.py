@@ -261,6 +261,9 @@ async def crawl_site(
 
         candidate = _canonicalize_pipeline_url(url)
 
+        if stop_event.is_set():
+            return False
+
         if not _is_supported_page_url(candidate):
             return False
 
@@ -271,9 +274,14 @@ async def crawl_site(
         browser_added = False
 
         async with state_lock:
+            # page cap/time watchdog가 이미 걸린 뒤에는 sitemap/HTTP discovery가
+            # 남은 URL을 known/pending에 계속 밀어 넣지 않는다.
+            if stop_event.is_set():
+                return False
+
             known_page_urls.add(candidate)
 
-            if stop_event.is_set() or candidate in browser_visited:
+            if candidate in browser_visited:
                 pass
             else:
                 pattern = _url_pattern(candidate)
@@ -312,6 +320,8 @@ async def crawl_site(
 
     async def schedule_standard_resources(url):
         for kind, resource_url in standard_discovery_resources(url):
+            if stop_event.is_set():
+                break
             await schedule_discovery(kind, resource_url)
 
     async def queues_are_finished():
@@ -438,6 +448,8 @@ async def crawl_site(
                             text,
                             final_url,
                         ):
+                            if stop_event.is_set():
+                                break
                             await schedule_discovery("sitemap", sitemap_url)
                         continue
 
@@ -449,9 +461,16 @@ async def crawl_site(
                         )
 
                         for sitemap_url in sitemap_urls:
+                            if stop_event.is_set():
+                                break
                             await schedule_discovery("sitemap", sitemap_url)
 
+                        if stop_event.is_set():
+                            continue
+
                         for page_url in page_urls:
+                            if stop_event.is_set():
+                                break
                             await schedule_page(page_url, source="sitemap")
                         continue
 
@@ -471,6 +490,8 @@ async def crawl_site(
                     discovery_html_count += 1
 
                     for link in extract_html_links(text, final_url):
+                        if stop_event.is_set():
+                            break
                         await schedule_page(link, source="http")
 
                 finally:
@@ -860,11 +881,6 @@ async def crawl_site(
                         time.perf_counter() - page_work_started
                     )
                     links = page_result.pop("links", set())
-
-                    # 렌더링된 DOM에서 실제로 보인 링크는 최우선으로 승격한다.
-                    for link in sorted(links):
-                        await schedule_page(link, source="browser")
-
                     reached_cap = False
 
                     async with state_lock:
@@ -892,7 +908,15 @@ async def crawl_site(
                     )
 
                     if reached_cap:
+                        # 마지막 허용 페이지에서 수천 링크를 발견했더라도 이미
+                        # page cap에 도달했으므로 불필요한 queue 확장을 하지 않는다.
                         return
+
+                    # 렌더링된 DOM에서 실제로 보인 링크는 최우선으로 승격한다.
+                    for link in sorted(links):
+                        if stop_event.is_set():
+                            break
+                        await schedule_page(link, source="browser")
 
                 finally:
                     if reserved_final_url is not None:
