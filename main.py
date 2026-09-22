@@ -168,6 +168,10 @@ async def main():
         "HTML + robots + sitemap"
     )
     print(
+        "[ARGUS] 보안 모드 : 브라우저 다운로드 저장 차단 / "
+        "비-HTML 다운로드 URL skip"
+    )
+    print(
         "[ARGUS] 다중 검사 : 데스크톱 즉시·안정·스크롤 + "
         "모바일 안정·스크롤"
     )
