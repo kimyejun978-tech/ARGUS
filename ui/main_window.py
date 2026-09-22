@@ -322,13 +322,62 @@ class ArgusApp(tk.Tk):
         )
         self.progress.pack(fill="x")
 
-        notebook = ttk.Notebook(outer, style="Argus.TNotebook")
-        notebook.pack(fill="both", expand=True)
+        tab_shell = tk.Frame(
+            outer,
+            bg=PANEL,
+            highlightbackground=BORDER,
+            highlightthickness=1,
+        )
+        tab_shell.pack(fill="both", expand=True)
 
-        results_frame = tk.Frame(notebook, bg=PANEL)
-        log_frame = tk.Frame(notebook, bg=PANEL)
-        notebook.add(results_frame, text="  탐지 결과  ")
-        notebook.add(log_frame, text="  실행 로그  ")
+        tab_header = tk.Frame(tab_shell, bg=PANEL_2)
+        tab_header.pack(fill="x")
+
+        self.results_tab_button = tk.Button(
+            tab_header,
+            text="탐지 결과",
+            command=lambda: self._show_tab("results"),
+            bg=PANEL,
+            fg=TEXT,
+            activebackground=PANEL,
+            activeforeground=TEXT,
+            relief="flat",
+            bd=0,
+            cursor="hand2",
+            font=("Segoe UI Semibold", 9),
+            padx=18,
+            pady=9,
+        )
+        self.results_tab_button.pack(side="left")
+
+        self.log_tab_button = tk.Button(
+            tab_header,
+            text="실행 로그",
+            command=lambda: self._show_tab("log"),
+            bg=PANEL_2,
+            fg=MUTED,
+            activebackground="#1b2734",
+            activeforeground=TEXT,
+            relief="flat",
+            bd=0,
+            cursor="hand2",
+            font=("Segoe UI Semibold", 9),
+            padx=18,
+            pady=9,
+        )
+        self.log_tab_button.pack(side="left")
+
+        self.tab_content = tk.Frame(tab_shell, bg=PANEL)
+        self.tab_content.pack(fill="both", expand=True)
+
+        results_frame = tk.Frame(self.tab_content, bg=PANEL)
+        log_frame = tk.Frame(self.tab_content, bg=PANEL)
+        self.results_frame = results_frame
+        self.log_frame = log_frame
+
+        results_frame.place(x=0, y=0, relwidth=1, relheight=1)
+        log_frame.place(x=0, y=0, relwidth=1, relheight=1)
+        results_frame.tkraise()
 
         result_toolbar = tk.Frame(results_frame, bg=PANEL)
         result_toolbar.pack(fill="x", padx=12, pady=(12, 8))
@@ -371,7 +420,17 @@ class ArgusApp(tk.Tk):
         self.tree.column("url", width=390, minwidth=240)
         self.tree.column("location", width=300, minwidth=220)
 
-        y_scroll = ttk.Scrollbar(\n            tree_wrap,\n            orient="vertical",\n            command=self.tree.yview,\n            style="Argus.Vertical.TScrollbar",\n        )\n        x_scroll = ttk.Scrollbar(\n            tree_wrap,\n            orient="horizontal",\n            command=self.tree.xview,\n            style="Argus.Horizontal.TScrollbar",\n        )\n        self.tree.configure(
+        y_scroll = self._scrollbar(
+            tree_wrap,
+            orient="vertical",
+            command=self.tree.yview,
+        )
+        x_scroll = self._scrollbar(
+            tree_wrap,
+            orient="horizontal",
+            command=self.tree.xview,
+        )
+        self.tree.configure(
             yscrollcommand=y_scroll.set,
             xscrollcommand=x_scroll.set,
         )
@@ -393,7 +452,17 @@ class ArgusApp(tk.Tk):
             pady=12,
             state="disabled",
         )
-        log_y = ttk.Scrollbar(\n            log_frame,\n            orient="vertical",\n            command=self.log_text.yview,\n            style="Argus.Vertical.TScrollbar",\n        )\n        log_x = ttk.Scrollbar(\n            log_frame,\n            orient="horizontal",\n            command=self.log_text.xview,\n            style="Argus.Horizontal.TScrollbar",\n        )\n        self.log_text.configure(
+        log_y = self._scrollbar(
+            log_frame,
+            orient="vertical",
+            command=self.log_text.yview,
+        )
+        log_x = self._scrollbar(
+            log_frame,
+            orient="horizontal",
+            command=self.log_text.xview,
+        )
+        self.log_text.configure(
             yscrollcommand=log_y.set,
             xscrollcommand=log_x.set,
         )
@@ -402,6 +471,32 @@ class ArgusApp(tk.Tk):
         log_x.grid(row=1, column=0, sticky="ew")
         log_frame.grid_rowconfigure(0, weight=1)
         log_frame.grid_columnconfigure(0, weight=1)
+
+    def _show_tab(self, name):
+        if name == "log":
+            self.log_frame.tkraise()
+            self.log_tab_button.configure(bg=PANEL, fg=TEXT)
+            self.results_tab_button.configure(bg=PANEL_2, fg=MUTED)
+            return
+
+        self.results_frame.tkraise()
+        self.results_tab_button.configure(bg=PANEL, fg=TEXT)
+        self.log_tab_button.configure(bg=PANEL_2, fg=MUTED)
+
+    def _scrollbar(self, parent, *, orient, command):
+        return tk.Scrollbar(
+            parent,
+            orient=orient,
+            command=command,
+            bg="#1b2734",
+            activebackground="#2a394a",
+            troughcolor="#0d131b",
+            relief="flat",
+            bd=0,
+            width=12,
+            highlightthickness=0,
+            elementborderwidth=0,
+        )
 
     def _button(self, parent, text, command, *, bg, active_bg, fg=TEXT):
         button = tk.Button(
@@ -500,7 +595,9 @@ class ArgusApp(tk.Tk):
         self.cancel_button.configure(state="normal")
         self.open_result_button.configure(state="disabled")
         self.target_entry.configure(state="disabled")
-        self.progress.configure(mode="indeterminate")\n        self.progress.start(12)\n
+        self.progress.configure(mode="indeterminate")
+        self.progress.start(12)
+
         thread = threading.Thread(
             target=self._engine_worker,
             args=(target,),
@@ -646,7 +743,11 @@ class ArgusApp(tk.Tk):
 
     def _finish_scan(self, return_code):
         self.process = None
-        self.progress.stop()\n        self.progress.configure(mode="determinate", value=0)\n        self._restore_controls()\n\n        if self.cancel_requested:
+        self.progress.stop()
+        self.progress.configure(mode="determinate", value=0)
+        self._restore_controls()
+
+        if self.cancel_requested:
             self.status_var.set("중지됨")
             self.status_badge.configure(bg="#38252a", fg="#ffb8bd")
             self.current_url_var.set("사용자가 검사를 중지했습니다.")
@@ -667,7 +768,10 @@ class ArgusApp(tk.Tk):
 
     def _finish_error(self, message):
         self.process = None
-        self.progress.stop()\n        self.progress.configure(mode="determinate", value=0)\n        self._restore_controls()\n        self.status_var.set("오류")
+        self.progress.stop()
+        self.progress.configure(mode="determinate", value=0)
+        self._restore_controls()
+        self.status_var.set("오류")
         self.status_badge.configure(bg="#38252a", fg="#ffb8bd")
         self.current_url_var.set(message)
         self._append_log(f"[GUI] {message}")
