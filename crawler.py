@@ -343,26 +343,76 @@ SECURITY_META_SCRIPT = r"""
 
 
 async def _collect_security_metadata(page):
-    """Collect non-sensitive auth/form metadata without reading input values."""
+    """Collect non-sensitive auth/form metadata from all readable frames."""
 
-    try:
-        data = await page.evaluate(SECURITY_META_SCRIPT)
-    except Exception:
-        return {
-            "pageUrl": page.url,
-            "title": "",
-            "visibleText": "",
-            "headings": [],
-            "labels": [],
-            "imageAlts": [],
-            "ariaLabels": [],
-            "placeholders": [],
-            "inputTypes": {},
-            "forms": [],
-            "iframeUrls": [],
-        }
+    merged = {
+        "pageUrl": page.url,
+        "title": "",
+        "visibleText": "",
+        "headings": [],
+        "labels": [],
+        "imageAlts": [],
+        "ariaLabels": [],
+        "placeholders": [],
+        "inputTypes": {},
+        "forms": [],
+        "iframeUrls": [],
+        "frameMetadata": [],
+    }
 
-    return data if isinstance(data, dict) else {}
+    for frame in page.frames:
+        try:
+            data = await frame.evaluate(SECURITY_META_SCRIPT)
+        except Exception:
+            continue
+
+        if not isinstance(data, dict):
+            continue
+
+        frame_url = frame.url or ""
+        data["frameUrl"] = frame_url
+        data["isMainFrame"] = frame == page.main_frame
+        merged["frameMetadata"].append(data)
+
+        if frame == page.main_frame:
+            merged["title"] = str(data.get("title", "") or "")
+
+        visible = str(data.get("visibleText", "") or "")
+        if visible and len(merged["visibleText"]) < 8000:
+            remaining = 8000 - len(merged["visibleText"])
+            merged["visibleText"] += (" " if merged["visibleText"] else "") + visible[:remaining]
+
+        for key in ("headings", "labels", "imageAlts", "ariaLabels", "placeholders"):
+            values = data.get(key, []) or []
+            if values:
+                merged[key].extend(str(item) for item in values[:40])
+                merged[key] = merged[key][:80]
+
+        for input_type, count in (data.get("inputTypes", {}) or {}).items():
+            merged["inputTypes"][str(input_type)] = (
+                int(merged["inputTypes"].get(str(input_type), 0) or 0)
+                + int(count or 0)
+            )
+
+        for form in data.get("forms", []) or []:
+            if isinstance(form, dict):
+                copied = dict(form)
+                copied["frameUrl"] = frame_url
+                merged["forms"].append(copied)
+                if len(merged["forms"]) >= 80:
+                    break
+
+        if frame != page.main_frame and frame_url:
+            merged["iframeUrls"].append(frame_url)
+
+        merged["iframeUrls"].extend(
+            str(item)
+            for item in (data.get("iframeUrls", []) or [])
+            if item
+        )
+        merged["iframeUrls"] = list(dict.fromkeys(merged["iframeUrls"]))[:80]
+
+    return merged
 
 
 STATIC_EXTENSIONS = {
