@@ -44,6 +44,15 @@ def _combined_text(page):
     return " ".join(chunks).casefold()
 
 
+def _alias_in_text(alias, text):
+    alias = str(alias).casefold()
+    if not alias:
+        return False
+    if alias.isascii() and alias.replace("-", "").isalnum():
+        return bool(re.search(r"(?<![a-z0-9])" + re.escape(alias) + r"(?![a-z0-9])", text))
+    return alias in text
+
+
 def _brand_mismatches(page_url, text):
     hostname = _host(page_url)
     matches = []
@@ -54,7 +63,7 @@ def _brand_mismatches(page_url, text):
             (
                 alias
                 for alias in aliases
-                if str(alias).casefold() in text
+                if _alias_in_text(alias, text)
             ),
             None,
         )

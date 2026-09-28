@@ -315,7 +315,7 @@ async def main():
     suspicious_auxiliary = [
         item
         for item in auxiliary_findings
-        if item.get("risk") == "SUSPICIOUS"
+        if item.get("risk") in {"SUSPICIOUS", "HIGH_RISK"}
     ]
 
     if suspicious_auxiliary:

@@ -89,5 +89,16 @@ class PhishingAnalyzerTests(unittest.TestCase):
         )
 
 
+    def test_ascii_brand_alias_requires_word_boundary(self):
+        finding = analyze_phishing_page(
+            page(
+                "https://fruit.example.test/login",
+                text="Pineapple account login",
+                password=True,
+            )
+        )
+        self.assertIsNone(finding)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -5,16 +5,43 @@ extend CASES with sanitized captures from an approved offline corpus.
 """
 
 from phishing_analyzer import analyze_phishing_page
-from tests.test_phishing_analyzer import page
+
+
+def make_page(url, *, text="", password=False, identifier=True, action=None):
+    form = {
+        "action": action or url,
+        "method": "post",
+        "hasPassword": password,
+        "identifierCount": 1 if identifier else 0,
+    }
+    return {
+        "url": url,
+        "title": text,
+        "security_states": [
+            {
+                "title": text,
+                "visibleText": text,
+                "headings": [text] if text else [],
+                "labels": [],
+                "imageAlts": [],
+                "ariaLabels": [],
+                "placeholders": [],
+                "inputTypes": {"password": 1} if password else {"text": 1},
+                "forms": [form],
+                "iframeUrls": [],
+            }
+        ],
+    }
 
 
 CASES = [
-    ("official_login", False, page("https://facebook.com/login", text="Facebook login account password", password=True)),
-    ("generic_portal", False, page("https://civic-service.test/login", text="시민서비스 로그인", password=True)),
-    ("external_sso", False, page("https://school.example.test/login", text="Sign in to student portal", password=True, action="https://identity.example.test/session")),
-    ("typo_brand_login", True, page("https://twtch-login.test/account", text="Twitch login account password", password=True)),
-    ("brand_mismatch", True, page("https://account-center.test/signin", text="PayPal sign in account password", password=True)),
-    ("brand_mismatch_auth", True, page("https://security-check.test/verify", text="Microsoft account verification", password=False)),
+    ("official_login", False, make_page("https://facebook.com/login", text="Facebook login account password", password=True)),
+    ("generic_portal", False, make_page("https://civic-service.test/login", text="시민서비스 로그인", password=True)),
+    ("external_sso", False, make_page("https://school.example.test/login", text="Sign in to student portal", password=True, action="https://identity.example.test/session")),
+    ("unrelated_brand_word", False, make_page("https://fruit.example.test/login", text="Pineapple account login", password=True)),
+    ("typo_brand_login", True, make_page("https://twtch-login.test/account", text="Twitch login account password", password=True)),
+    ("brand_mismatch", True, make_page("https://account-center.test/signin", text="PayPal sign in account password", password=True)),
+    ("brand_mismatch_auth", True, make_page("https://security-check.test/verify", text="Microsoft account verification", password=False)),
 ]
 
 
@@ -37,7 +64,7 @@ def main():
     f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
     fpr = fp / (fp + tn) if fp + tn else 0.0
     print()
-    print("dataset: sanitized-pattern benchmark (not live-site performance)")
+    print("dataset: sanitized-pattern benchmark (not real-world performance)")
     print("samples:", len(CASES))
     print("TP:", tp, "FP:", fp, "TN:", tn, "FN:", fn)
     print(f"precision: {precision:.3f}")
