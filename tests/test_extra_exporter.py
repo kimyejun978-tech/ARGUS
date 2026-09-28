@@ -41,6 +41,22 @@ class ExtraExporterTests(unittest.TestCase):
             loaded = json.loads(output.read_text(encoding="utf-8"))
             self.assertEqual(loaded, data)
 
+    def test_export_includes_domain_impersonation_as_auxiliary(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp) / "result_extra.json"
+            _, data = export_result_extra_json(
+                entry_url="https://twtch-login.test/account",
+                download_events=[],
+                output_path=output,
+            )
+
+            self.assertFalse(data["meta"]["official_findings"])
+            self.assertEqual(len(data["auxiliary_findings"]), 1)
+            finding = data["auxiliary_findings"][0]
+            self.assertEqual(finding["type"], "DOMAIN_IMPERSONATION_RISK")
+            self.assertEqual(finding["risk"], "SUSPICIOUS")
+            self.assertEqual(finding["brand"], "Twitch")
+
 
 if __name__ == "__main__":
     unittest.main()

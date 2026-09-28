@@ -1,3 +1,5 @@
+import hashlib
+import json
 import re
 import time
 from collections import Counter, deque
@@ -499,6 +501,58 @@ async def _collect_links(page):
     return links
 
 
+async def _capture_dom_state_digest(page, state_name):
+    """Hash every rendered frame, including hidden DOM and attributes."""
+
+    frame_documents = []
+    for frame in page.frames:
+        try:
+            frame_html = await frame.content()
+            frame_documents.append(
+                {
+                    "url": (
+                        "<main-frame>"
+                        if frame == page.main_frame
+                        else frame.url
+                    ),
+                    "html_hash": hashlib.sha256(
+                        frame_html.replace("\r\n", "\n").encode("utf-8")
+                    ).hexdigest(),
+                    "readable": True,
+                }
+            )
+        except Exception:
+            frame_documents.append(
+                {
+                    "url": (
+                        "<main-frame>"
+                        if frame == page.main_frame
+                        else frame.url
+                    ),
+                    "html_hash": "",
+                    "readable": False,
+                }
+            )
+
+    frame_documents.sort(
+        key=lambda item: (
+            item["url"],
+            item["readable"],
+            item["html_hash"],
+        )
+    )
+    payload = json.dumps(
+        frame_documents,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return {
+        "name": state_name,
+        "digest": hashlib.sha256(payload.encode("utf-8")).hexdigest(),
+    }
+
+
 async def _wait_for_dom_quiet(page, quiet_ms=140, max_ms=900):
     """
     고정 sleep 대신 DOM 변경이 잠시 멈출 때까지 기다린다.
@@ -646,12 +700,14 @@ async def _capture_pass(page, pass_name):
     links_started = time.perf_counter()
     links = await _collect_links(page)
     links_elapsed = time.perf_counter() - links_started
+    content_state = await _capture_dom_state_digest(page, pass_name)
 
     return {
         "name": pass_name,
         "elements": elements,
         "frame_count": frame_count,
         "links": links,
+        "content_state": content_state,
         "timing": {
             "total": time.perf_counter() - pass_started,
             "dom_scan": dom_elapsed,
@@ -779,6 +835,10 @@ async def _scan_loaded_page_multi(page):
         "observation_count": len(all_elements),
         "scan_pass_count": len(passes),
         "scan_passes": [scan_pass["name"] for scan_pass in passes],
+        "content_states": [
+            scan_pass["content_state"]
+            for scan_pass in passes
+        ],
         "timings": timings,
         "links": all_links,
     }

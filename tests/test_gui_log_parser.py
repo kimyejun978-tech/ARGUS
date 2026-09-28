@@ -20,6 +20,14 @@ class GuiLogParserTests(unittest.TestCase):
         self.assertEqual(event["type"], "complete")
         self.assertEqual(event["completed"], 9)
 
+    def test_live_discovered_url_line(self):
+        event = parse_engine_line(
+            "[ARGUS] 발견 URL 26: https://example.com/new-page"
+        )
+        self.assertEqual(event["type"], "discovered")
+        self.assertEqual(event["count"], 26)
+        self.assertEqual(event["url"], "https://example.com/new-page")
+
     def test_summary_line(self):
         event = parse_engine_line("최종 findings    : 20")
         self.assertEqual(

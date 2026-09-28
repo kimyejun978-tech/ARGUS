@@ -9,6 +9,9 @@ _COMPLETE_RE = re.compile(
     r"^\[ARGUS\]\[W(?P<worker>\d+)\] 완료 "
     r"(?P<completed>\d+): (?P<url>.+)$"
 )
+_DISCOVERED_RE = re.compile(
+    r"^\[ARGUS\] 발견 URL (?P<count>\d+): (?P<url>.+)$"
+)
 _SUMMARY_RE = re.compile(
     r"^\s*(?P<key>"
     r"브라우저 worker|discovery worker|발견 고유 URL 수|정밀검사 시도 수|"
@@ -41,6 +44,14 @@ def parse_engine_line(line):
             "type": "complete",
             "worker": int(match.group("worker")),
             "completed": int(match.group("completed")),
+            "url": match.group("url"),
+        }
+
+    match = _DISCOVERED_RE.match(text)
+    if match:
+        return {
+            "type": "discovered",
+            "count": int(match.group("count")),
             "url": match.group("url"),
         }
 

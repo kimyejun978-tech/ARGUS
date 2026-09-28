@@ -74,7 +74,10 @@ class ArgusDesktopApi:
             }
 
         with self._lock:
-            if self._process is not None:
+            if (
+                self._state.get("status") == "running"
+                or self._process is not None
+            ):
                 return {
                     "ok": False,
                     "message": "이미 점검이 진행 중입니다.",
@@ -105,34 +108,75 @@ class ArgusDesktopApi:
     def cancel_scan(self):
         with self._lock:
             process = self._process
-            if process is None:
+            if self._state.get("status") != "running":
                 return {"ok": False, "message": "진행 중인 점검이 없습니다."}
 
             self._cancel_requested = True
             self._state["status_text"] = "중지 중"
             self._state["current_url"] = "실행 중인 점검 작업을 종료하고 있습니다."
 
+        if process is None:
+            return {"ok": True}
+
         try:
-            if os.name == "nt":
-                subprocess.run(
-                    [
-                        "taskkill",
-                        "/PID",
-                        str(process.pid),
-                        "/T",
-                        "/F",
-                    ],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    check=False,
-                )
-            else:
-                process.terminate()
+            self._terminate_process(process)
             return {"ok": True}
         except Exception as exc:
             with self._lock:
                 self._state["error"] = str(exc)
             return {"ok": False, "message": str(exc)}
+
+    def _terminate_process(self, process):
+        """Terminate the engine and its browser children without preserving them."""
+
+        if process is None or process.poll() is not None:
+            return True
+
+        if os.name == "nt":
+            subprocess.run(
+                [
+                    "taskkill",
+                    "/PID",
+                    str(process.pid),
+                    "/T",
+                    "/F",
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+        else:
+            process.terminate()
+            try:
+                process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                process.kill()
+
+        return True
+
+    def shutdown(self):
+        """Stop a running scan when the desktop window is closing."""
+
+        with self._lock:
+            self._cancel_requested = True
+            process = self._process
+            worker = self._worker
+
+        if process is not None:
+            try:
+                self._terminate_process(process)
+            except Exception as exc:
+                with self._lock:
+                    self._append_log(f"[DESKTOP] 종료 정리 실패: {exc}")
+
+        if (
+            worker is not None
+            and worker is not threading.current_thread()
+            and worker.is_alive()
+        ):
+            worker.join(timeout=5)
+
+        return True
 
     def open_result_folder(self):
         with self._lock:
@@ -156,6 +200,19 @@ class ArgusDesktopApi:
         except Exception as exc:
             return {"ok": False, "message": str(exc)}
 
+    def _engine_command(self):
+        if getattr(sys, "frozen", False):
+            engine_name = (
+                "argus-engine.exe" if os.name == "nt" else "argus-engine"
+            )
+            return [str(Path(sys.executable).with_name(engine_name))]
+
+        return [
+            sys.executable,
+            "-u",
+            str(self.root / "main.py"),
+        ]
+
     def _run_engine(self, target):
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"
@@ -168,14 +225,11 @@ class ArgusDesktopApi:
                 "CREATE_NEW_PROCESS_GROUP",
                 0,
             )
+            creationflags |= getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
         try:
             process = subprocess.Popen(
-                [
-                    sys.executable,
-                    "-u",
-                    str(self.root / "main.py"),
-                ],
+                self._engine_command(),
                 cwd=str(self.root),
                 env=env,
                 stdin=subprocess.PIPE,
@@ -190,8 +244,12 @@ class ArgusDesktopApi:
 
             with self._lock:
                 self._process = process
+                cancelled = self._cancel_requested
 
-            if process.stdin is not None:
+            if cancelled:
+                self._terminate_process(process)
+
+            if not cancelled and process.stdin is not None:
                 process.stdin.write(target + "\n")
                 process.stdin.flush()
                 process.stdin.close()
@@ -211,6 +269,8 @@ class ArgusDesktopApi:
         finally:
             with self._lock:
                 self._process = None
+                if self._worker is threading.current_thread():
+                    self._worker = None
 
     def _append_log(self, line):
         logs = self._state["logs"]
@@ -250,6 +310,10 @@ class ArgusDesktopApi:
             if event_type == "complete":
                 self._state["completed"] = event["completed"]
                 self._state["current_url"] = event["url"]
+                return
+
+            if event_type == "discovered":
+                self._state["discovered"] = event["count"]
                 return
 
             if event_type == "autotune":
@@ -314,8 +378,17 @@ class ArgusDesktopApi:
 
         with self._lock:
             self._state["status"] = "complete"
-            self._state["status_text"] = "완료"
-            self._state["current_url"] = "점검이 완료되었습니다."
+            official_count = self._state["findings"]
+            auxiliary_count = self._state["aux_downloads"]
+            if official_count > 0:
+                self._state["status_text"] = "탐지 결과 있음"
+                self._state["current_url"] = "공식 탐지 결과를 확인해 주세요."
+            elif auxiliary_count > 0:
+                self._state["status_text"] = "추가 확인 필요"
+                self._state["current_url"] = "보조 위험 진단을 확인해 주세요."
+            else:
+                self._state["status_text"] = "특이사항 없음"
+                self._state["current_url"] = "점검이 완료되었습니다."
             if self._started_monotonic is not None and not self._state["elapsed_sec"]:
                 self._state["elapsed_sec"] = round(
                     time.monotonic() - self._started_monotonic,
@@ -348,6 +421,23 @@ class ArgusDesktopApi:
                     for item in aux
                     if item.get("risk") == "SUSPICIOUS"
                 )
+                domain_risks = [
+                    item
+                    for item in aux
+                    if item.get("type") == "DOMAIN_IMPERSONATION_RISK"
+                    and item.get("risk") == "SUSPICIOUS"
+                ]
+                if domain_risks:
+                    first = domain_risks[0]
+                    self._state["warning"] = (
+                        "URL 사칭 위험이 감지되었습니다: "
+                        f"{first.get('display_hostname') or first.get('hostname', '')} "
+                        f"→ {first.get('brand', '브랜드')} 확인 필요"
+                    )
+                elif self._state["aux_downloads"]:
+                    self._state["warning"] = (
+                        "보조 위험 진단이 감지되었습니다. 상세 내용을 확인해 주세요."
+                    )
 
     def _read_json(self, raw_path):
         path = Path(raw_path)

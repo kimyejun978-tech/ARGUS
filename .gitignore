@@ -8,7 +8,12 @@ __pycache__/
 
 # Virtual environment
 .venv/
+.venv-build/
 venv/
+
+# Windows portable build artifacts
+build/
+dist/
 
 # IDE
 .vscode/
@@ -18,3 +23,5 @@ output/*
 !output/.gitkeep
 result.json
 result_extra.json
+design-implementation.png
+worker_benchmark_results.txt

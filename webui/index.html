@@ -4,46 +4,40 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>ARGUS · 공공 웹사이트 점검 시스템</title>
-  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./styles.css?v=6">
 </head>
 <body>
   <div class="app-shell">
     <header class="topbar">
       <div class="identity">
-        <div class="identity-mark" aria-hidden="true">
-          <span class="bar blue"></span><span class="bar red"></span>
-        </div>
-        <div>
-          <div class="eyebrow">PUBLIC WEB INSPECTION</div>
-          <h1>ARGUS</h1>
-          <p>공공 웹사이트 은닉광고 자동 점검 시스템</p>
-        </div>
-      </div>
-      <div id="statusBadge" class="status-badge idle">
-        <span class="status-dot"></span>
-        <span id="statusText">대기</span>
+        <h1>ARGUS</h1>
       </div>
     </header>
 
     <main>
-      <section class="panel target-panel">
+      <section class="panel target-panel" aria-labelledby="targetTitle">
         <div class="section-head">
           <div>
-            <span class="section-kicker">점검 대상</span>
-            <h2>URL 또는 HTML 파일 입력</h2>
+            <h2 id="targetTitle">웹사이트를 점검하세요.</h2>
+            <p class="target-lead">URL을 붙여넣거나 저장된 HTML 파일을 선택하면 ARGUS가 은닉 요소를 분석합니다.</p>
           </div>
-          <span class="security-note">다운로드 저장 차단 · 비공식 위험 동작 별도 기록</span>
         </div>
         <div class="target-row">
+          <label class="sr-only" for="targetInput">점검할 URL 또는 HTML 파일 경로</label>
           <input id="targetInput" type="text" value="https://" autocomplete="off" spellcheck="false">
           <button id="fileButton" class="button ghost">파일 선택</button>
           <button id="startButton" class="button primary">점검 시작</button>
           <button id="cancelButton" class="button danger" disabled>중지</button>
         </div>
-        <div id="formMessage" class="form-message"></div>
+        <div id="formMessage" class="form-message" role="status" aria-live="polite"></div>
       </section>
 
-      <section class="metrics" aria-label="점검 현황">
+      <section class="operations" aria-label="점검 현황">
+        <div class="operations-head">
+          <h2>진행 상황</h2>
+          <button id="openFolderButton" class="text-button" disabled>결과 폴더 열기</button>
+        </div>
+        <div class="metrics">
         <article class="metric-card">
           <span class="metric-label">운영 상태</span>
           <strong id="metricStatus">대기</strong>
@@ -69,34 +63,27 @@
           <strong id="elapsedText">0.0초</strong>
           <small>엔진 실행 기준</small>
         </article>
-      </section>
-
-      <section class="panel live-panel">
-        <div class="section-head compact">
-          <div>
-            <span class="section-kicker">실시간 점검 현황</span>
-            <h2 id="liveTitle">점검 대기</h2>
+        </div>
+        <div class="live-panel">
+          <div class="current-url">
+            <span id="liveTitle">점검 대기</span>
+            <code id="currentUrl" aria-live="polite">점검할 주소를 입력해 주세요.</code>
           </div>
-          <button id="openFolderButton" class="text-button" disabled>결과 폴더 열기</button>
+          <div id="progressTrack" class="progress-track" role="progressbar" aria-label="전체 URL 수를 확정할 수 없는 점검 진행 상태" aria-busy="false">
+            <div id="progressFill" class="progress-fill"></div>
+          </div>
+          <div id="warningBox" class="warning-box hidden" role="alert"></div>
         </div>
-        <div class="current-url">
-          <span>현재 작업</span>
-          <code id="currentUrl">점검할 주소를 입력해 주세요.</code>
-        </div>
-        <div id="progressTrack" class="progress-track">
-          <div id="progressFill" class="progress-fill"></div>
-        </div>
-        <div id="warningBox" class="warning-box hidden"></div>
       </section>
 
       <section class="workspace">
-        <nav class="tabs" aria-label="결과 화면">
-          <button class="tab active" data-tab="official">공식 탐지 결과 <span id="officialTabCount">0</span></button>
-          <button class="tab" data-tab="aux">보조 위험 진단 <span id="auxTabCount">0</span></button>
-          <button class="tab" data-tab="logs">시스템 로그</button>
+        <nav class="tabs" role="tablist" aria-label="결과 화면">
+          <button id="officialTab" class="tab active" role="tab" aria-selected="true" aria-controls="officialPanel" tabindex="0" data-tab="official">공식 탐지 결과 <span id="officialTabCount">0</span></button>
+          <button id="auxTab" class="tab" role="tab" aria-selected="false" aria-controls="auxPanel" tabindex="-1" data-tab="aux">보조 위험 진단 <span id="auxTabCount">0</span></button>
+          <button id="logsTab" class="tab" role="tab" aria-selected="false" aria-controls="logsPanel" tabindex="-1" data-tab="logs">시스템 로그</button>
         </nav>
 
-        <div id="officialPanel" class="tab-panel active">
+        <div id="officialPanel" class="tab-panel active" role="tabpanel" aria-labelledby="officialTab">
           <div class="summary-strip">
             <span>확정 탐지 <b id="confirmedCount">0</b></span>
             <i></i>
@@ -106,7 +93,7 @@
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>기법</th><th>탐지 문구</th><th>페이지</th><th>위치</th></tr></thead>
+              <thead><tr><th scope="col">기법</th><th scope="col">탐지 문구</th><th scope="col">페이지</th><th scope="col">위치</th></tr></thead>
               <tbody id="officialBody"></tbody>
             </table>
             <div id="officialEmpty" class="empty-state">
@@ -116,11 +103,11 @@
           </div>
         </div>
 
-        <div id="auxPanel" class="tab-panel">
-          <div class="notice-line">공식 result.json과 분리된 보조 진단입니다. 자동 다운로드 요청은 저장하지 않고 차단합니다.</div>
+        <div id="auxPanel" class="tab-panel" role="tabpanel" aria-labelledby="auxTab" hidden>
+          <div class="notice-line">공식 result.json과 분리된 보조 진단입니다. URL 사칭 위험은 확정 피싱 판정이 아니며, 자동 다운로드 요청은 저장하지 않고 차단합니다.</div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>판정</th><th>발생 페이지</th><th>다운로드 요청</th><th>파일명</th></tr></thead>
+              <thead><tr><th scope="col">유형</th><th scope="col">대상</th><th scope="col">상세</th><th scope="col">위험도</th></tr></thead>
               <tbody id="auxBody"></tbody>
             </table>
             <div id="auxEmpty" class="empty-state">
@@ -130,18 +117,18 @@
           </div>
         </div>
 
-        <div id="logsPanel" class="tab-panel">
+        <div id="logsPanel" class="tab-panel" role="tabpanel" aria-labelledby="logsTab" hidden>
           <pre id="logOutput" class="log-output">ARGUS 시스템 로그 대기 중</pre>
         </div>
       </section>
     </main>
   </div>
 
-  <div id="detailModal" class="modal hidden" role="dialog" aria-modal="true">
+  <div id="detailModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="detailTitle">
     <div class="modal-card">
       <div class="modal-head">
-        <div><span class="section-kicker">탐지 상세</span><h2 id="detailTitle">상세 정보</h2></div>
-        <button id="closeModal" class="icon-button" aria-label="닫기">×</button>
+        <h2 id="detailTitle">상세 정보</h2>
+        <button id="closeModal" class="icon-button" aria-label="닫기">닫기</button>
       </div>
       <dl id="detailList"></dl>
       <div class="modal-actions">
@@ -150,6 +137,6 @@
     </div>
   </div>
 
-  <script src="./app.js"></script>
+  <script src="./app.js?v=6"></script>
 </body>
 </html>

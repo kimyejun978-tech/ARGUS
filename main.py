@@ -308,23 +308,30 @@ async def main():
         )
 
     auxiliary_findings = extra_json.get("auxiliary_findings", [])
-    suspicious_downloads = [
+    suspicious_auxiliary = [
         item
         for item in auxiliary_findings
         if item.get("risk") == "SUSPICIOUS"
     ]
 
-    if suspicious_downloads:
+    if suspicious_auxiliary:
         print()
         print("==============================")
-        print("       보조 위험 동작")
+        print("       보조 위험 진단")
         print("==============================")
-        for index, item in enumerate(suspicious_downloads, start=1):
-            print(f"[자동 다운로드 의심 {index}]")
-            print("페이지 :", item.get("page_url", ""))
-            print("요청 URL :", item.get("download_url", ""))
-            print("파일명 :", item.get("suggested_filename", ""))
-            print("차단됨 :", item.get("blocked", True))
+        for index, item in enumerate(suspicious_auxiliary, start=1):
+            if item.get("type") == "DOMAIN_IMPERSONATION_RISK":
+                print(f"[URL 사칭 위험 {index}]")
+                print("URL :", item.get("page_url", ""))
+                print("표시 도메인 :", item.get("display_hostname", ""))
+                print("의심 브랜드 :", item.get("brand", ""))
+                print("판단 근거 :", item.get("reason", ""))
+            else:
+                print(f"[자동 다운로드 의심 {index}]")
+                print("페이지 :", item.get("page_url", ""))
+                print("요청 URL :", item.get("download_url", ""))
+                print("파일명 :", item.get("suggested_filename", ""))
+                print("차단됨 :", item.get("blocked", True))
             print()
 
     if verified_candidates:

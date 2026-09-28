@@ -3,181 +3,64 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>한빛시 시민서비스 포털</title>
+  <title>한빛시 생활민원 서비스</title>
   <style>
-    :root{
-      --navy:#0b2f5b;
-      --blue:#246fce;
-      --line:#d9e3ef;
-      --soft:#f4f7fb;
-      --text:#1b2633;
-      --muted:#65758a;
-    }
     *{box-sizing:border-box}
-    body{margin:0;font-family:"Malgun Gothic","Segoe UI",sans-serif;color:var(--text);background:#fff}
-    .official{background:#f2f6fa;border-bottom:1px solid #d7e0ea;padding:8px 0;font-size:13px}
-    .wrap{width:min(1180px,calc(100% - 40px));margin:0 auto}
-    header{padding:24px 0;border-bottom:1px solid var(--line)}
-    .brand{display:flex;align-items:center;justify-content:space-between}
-    .brand h1{margin:0;color:var(--navy);font-size:29px}
-    .brand p{margin:5px 0 0;color:var(--muted);font-size:14px}
-    nav{display:flex;gap:34px;margin-top:24px;font-weight:700}
-    nav a{color:#24384f;text-decoration:none}
-    .hero{background:linear-gradient(135deg,#edf5ff,#f9fbfe);padding:46px 0 38px}
-    .hero h2{font-size:31px;margin:0 0 12px;color:#183b67}
-    .hero p{color:#5e7085;margin:0 0 24px}
-    .search{display:flex;max-width:720px;background:#fff;border:2px solid var(--blue);border-radius:12px;overflow:hidden}
-    .search input{flex:1;border:0;padding:16px;font-size:16px;outline:0}
-    .search button{border:0;background:var(--blue);color:#fff;padding:0 26px;font-weight:700}
-    main{padding:34px 0 60px}
-    .grid{display:grid;grid-template-columns:1.2fr .8fr;gap:22px}
-    .card{border:1px solid var(--line);border-radius:14px;padding:22px;background:#fff}
-    .card h3{margin:0 0 16px;font-size:19px}
-    .service-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
-    .service{background:var(--soft);padding:18px 14px;border-radius:10px;text-align:center;font-weight:700;font-size:14px}
-    .notice{display:grid;gap:12px}
-    .notice div{display:flex;justify-content:space-between;border-bottom:1px solid #edf1f5;padding-bottom:11px;font-size:14px}
-    footer{background:#182433;color:#c8d3df;padding:28px 0;font-size:13px}
-    footer p{margin:5px 0}
-
-    /* ARGUS safe synthetic challenge cases. These are test-only placeholders. */
-    .synthetic-transparent{
-      color:transparent;
-      background:#fff;
-    }
-    .synthetic-opacity{
-      opacity:0;
-    }
-    .synthetic-offscreen{
-      position:absolute;
-      left:-9999px;
-      top:0;
-    }
-    .synthetic-tiny{
-      font-size:1px;
-      line-height:1px;
-      height:1px;
-      overflow:hidden;
-    }
+    body{margin:0;background:#f4f7fa;color:#1f2937;font-family:"Malgun Gothic",Arial,sans-serif}
+    header{background:#12355b;color:white;padding:22px 7vw}
+    header p{margin:6px 0 0;color:#d9e7f5}
+    nav{display:flex;gap:24px;padding:14px 7vw;background:white;border-bottom:1px solid #d7e0e8}
+    nav a{color:#294766;text-decoration:none;font-weight:700}
+    main{max-width:1080px;margin:28px auto;padding:0 22px}
+    .notice{padding:16px 18px;background:#fff8df;border:1px solid #e5cf75;margin-bottom:18px}
+    .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+    .service{min-height:130px;padding:20px;background:white;border:1px solid #d9e2ec}
+    .service h2{margin:0 0 10px;font-size:18px;color:#173d65}
+    .service p{margin:0;line-height:1.7;color:#526579}
+    footer{margin-top:38px;padding:24px 7vw;background:#e7edf3;color:#53677c}
+    .opacity-zero{opacity:0}
+    .far-left{position:absolute;left:-9999px;top:180px}
+    .same-color{color:#fff;background:#fff}
+    @media(max-width:720px){.grid{grid-template-columns:1fr}}
   </style>
 </head>
 <body>
-  <div class="official">
-    <div class="wrap">대한민국 공공서비스 UI를 모사한 ARGUS 테스트 전용 페이지입니다.</div>
-  </div>
-
   <header>
-    <div class="wrap">
-      <div class="brand">
-        <div>
-          <h1>한빛시 시민서비스</h1>
-          <p>시민을 위한 생활·민원·복지 통합 안내</p>
-        </div>
-        <div>로그인 · 회원가입 · 통합검색</div>
-      </div>
-      <nav>
-        <a href="#services">민원서비스</a>
-        <a href="#benefit">복지·혜택</a>
-        <a href="#notice">시정소식</a>
-        <a href="#support">고객지원</a>
-      </nav>
-    </div>
+    <strong>한빛시 생활민원 서비스</strong>
+    <p>시민의 일상을 돕는 안전한 온라인 행정 창구</p>
   </header>
-
-  <section class="hero">
-    <div class="wrap">
-      <h2>필요한 공공서비스를 빠르게 찾아보세요.</h2>
-      <p>생활 속 행정정보와 시민 지원 서비스를 한 곳에서 확인할 수 있습니다.</p>
-      <div class="search">
-        <input aria-label="서비스 검색" placeholder="어떤 서비스를 찾고 계신가요?">
-        <button type="button">검색</button>
-      </div>
+  <nav aria-label="주요 서비스">
+    <a href="#civil">민원 신청</a>
+    <a href="#welfare">복지 안내</a>
+    <a href="#notices">시정 소식</a>
+  </nav>
+  <main>
+    <div class="notice">
+      이 페이지는 ARGUS 수동 검사용으로 만든 안전한 합성 fixture입니다.
+      실제 기관·광고·다운로드와 연결되지 않습니다.
     </div>
-  </section>
+    <section class="grid" aria-label="생활 서비스">
+      <article id="civil" class="service">
+        <h2>민원 신청</h2>
+        <p>생활 불편 신고와 각종 증명서 신청 절차를 안내합니다.</p>
+      </article>
+      <article id="welfare" class="service">
+        <h2>복지 안내</h2>
+        <p>생애주기별 복지 서비스와 상담 창구를 확인할 수 있습니다.</p>
+      </article>
+      <article id="notices" class="service">
+        <h2>시정 소식</h2>
+        <p>한빛시의 주요 공지와 행사 일정을 제공합니다.</p>
+      </article>
+    </section>
 
-  <main class="wrap">
-    <div class="grid">
-      <section id="services" class="card">
-        <h3>자주 찾는 서비스</h3>
-        <div class="service-grid">
-          <div class="service">주민등록 민원</div>
-          <div class="service">지방세 안내</div>
-          <div class="service">복지 지원</div>
-          <div class="service">시설 예약</div>
-          <div class="service">생활 신고</div>
-          <div class="service">일자리 정보</div>
-          <div class="service">교육 지원</div>
-          <div class="service">교통 정보</div>
-        </div>
-      </section>
-
-      <section id="notice" class="card">
-        <h3>공지사항</h3>
-        <div class="notice">
-          <div><span>시민서비스 시스템 정기점검 안내</span><span>09.22</span></div>
-          <div><span>추석 연휴 민원업무 운영 안내</span><span>09.19</span></div>
-          <div><span>청소년 디지털 교육 신청 안내</span><span>09.16</span></div>
-          <div><span>공공시설 이용시간 변경 안내</span><span>09.12</span></div>
-        </div>
-      </section>
-    </div>
-
-    <!-- TRANSPARENT: safe synthetic hidden-ad wording -->
-    <div class="synthetic-transparent">
-      불법광고 테스트 전용 비인가 홍보 안내
-    </div>
-
-    <!-- TRANSPARENT via opacity -->
-    <div class="synthetic-opacity">
-      불법광고 테스트 전용 숨김 홍보 문구
-    </div>
-
-    <!-- OFFSCREEN -->
-    <div class="synthetic-offscreen">
-      불법광고 테스트 전용 외부 이동 홍보
-    </div>
-
-    <!-- JAMO obfuscation. Generic test-only wording, no real restricted service. -->
-    <div class="synthetic-tiny">
-      ㅂㅜㄹㅂㅓㅂ ㄱㅘㅇㄱㅗ ㅌㅔㅅㅡㅌㅡ ㅈㅓㄴㅇㅛㅇ
-    </div>
-
-    <!-- HOMOGLYPH/digit substitution -->
-    <div class="synthetic-tiny">
-      B0NUS TEST ONLY 신규 홍보
-    </div>
+    <section aria-label="ARGUS 합성 탐지 요소">
+      <p class="opacity-zero">TEST ONLY 불법 광고 회원 모집 가입 혜택 안내</p>
+      <p class="far-left">TEST ONLY unauthorized gambling advertisement sign up now</p>
+      <p>ㅂㅜㄹㅂㅓㅂ ㄱㅘㅇㄱㅗ ㅎㅚㅇㅝㄴ ㅁㅗㅈㅣㅂ</p>
+      <p class="same-color">PRОMОTION register now claim bonus</p>
+    </section>
   </main>
-
-  <footer>
-    <div class="wrap">
-      <strong>한빛시 시민서비스</strong>
-      <p>본 페이지는 실제 기관이 아닌 ARGUS 탐지 성능 검증용 합성 페이지입니다.</p>
-      <p>어떠한 실제 불법 서비스·거래·접속 정보도 포함하지 않습니다.</p>
-    </div>
-  </footer>
-
-  <script>
-    // Harmless automatic-download simulation for ARGUS auxiliary diagnostics.
-    // The payload is plain text and contains no executable content.
-    window.addEventListener("load", () => {
-      setTimeout(() => {
-        const blob = new Blob(
-          ["ARGUS SAFE DOWNLOAD TEST ONLY\n"],
-          {type: "text/plain"}
-        );
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = "argus-safe-download-test.txt";
-        a.style.display = "none";
-        document.body.appendChild(a);
-        a.click();
-        setTimeout(() => {
-          URL.revokeObjectURL(url);
-          a.remove();
-        }, 1000);
-      }, 900);
-    });
-  </script>
+  <footer>한빛시는 실재하지 않으며 이 문서는 로컬 테스트 전용입니다.</footer>
 </body>
 </html>

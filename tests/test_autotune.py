@@ -122,19 +122,26 @@ class AutoTuneTests(unittest.TestCase):
             "results": [{"workers": 6}],
         }
 
-        with (
-            patch.dict(os.environ, {}, clear=True),
-            patch("autotune.machine_snapshot", return_value={}),
-            patch("autotune._load_cache", return_value=cached),
-            patch(
-                "autotune.async_playwright",
-                side_effect=AssertionError("benchmark must not run"),
-            ),
-        ):
-            workers, info = asyncio.run(auto_tune_workers(4))
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cache_path = Path(temp_dir) / "worker_tuning.json"
+            with (
+                patch.dict(
+                    os.environ,
+                    {"ARGUS_AUTOTUNE_CACHE": str(cache_path)},
+                    clear=True,
+                ),
+                patch("autotune.machine_snapshot", return_value={}),
+                patch("autotune._load_cache", return_value=cached),
+                patch(
+                    "autotune.async_playwright",
+                    side_effect=AssertionError("benchmark must not run"),
+                ),
+            ):
+                workers, info = asyncio.run(auto_tune_workers(4))
 
         self.assertEqual(workers, 6)
         self.assertEqual(info["source"], "cache")
+        self.assertEqual(info["cache_path"], str(cache_path))
 
     def test_retune_ignores_cache_and_attempts_measurement(self):
         with (

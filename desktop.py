@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 
 try:
@@ -11,8 +12,14 @@ except ImportError as exc:
 from desktop_api import ArgusDesktopApi
 
 
-ROOT = Path(__file__).resolve().parent
-WEBUI = ROOT / "webui"
+SOURCE_ROOT = Path(__file__).resolve().parent
+APP_ROOT = (
+    Path(sys.executable).resolve().parent
+    if getattr(sys, "frozen", False)
+    else SOURCE_ROOT
+)
+RESOURCE_ROOT = Path(getattr(sys, "_MEIPASS", SOURCE_ROOT))
+WEBUI = RESOURCE_ROOT / "webui"
 
 
 class DesktopBridge(ArgusDesktopApi):
@@ -39,10 +46,10 @@ class DesktopBridge(ArgusDesktopApi):
 
 
 def run_app():
-    api = DesktopBridge(ROOT)
+    api = DesktopBridge(APP_ROOT)
     index_url = (WEBUI / "index.html").resolve().as_uri()
 
-    webview.create_window(
+    window = webview.create_window(
         "ARGUS · 공공 웹사이트 점검 시스템",
         index_url,
         js_api=api,
@@ -51,6 +58,7 @@ def run_app():
         min_size=(1100, 720),
         background_color="#07111f",
     )
+    window.events.closing += api.shutdown
     webview.start(debug=False)
 
 

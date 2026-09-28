@@ -1,5 +1,7 @@
 import asyncio
+import hashlib
 import itertools
+import json
 import time
 from collections import Counter
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -7,11 +9,16 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from playwright.async_api import async_playwright
 
 from crawler import (
+    MULTI_SCAN_VIEWPORTS,
+    _auto_scroll,
     _canonicalize_url as _base_canonicalize_url,
+    _capture_dom_state_digest,
+    _collect_links,
     _is_same_site,
     _is_supported_page_url,
     _scan_loaded_page_multi,
     _url_pattern,
+    _wait_for_dom_quiet,
 )
 from fast_discovery import (
     extract_html_links,
@@ -182,6 +189,80 @@ def _canonicalize_pipeline_url(url: str) -> str:
     )
 
 
+async def _rendered_content_fingerprint(page, final_url):
+    """Build a conservative, hidden-DOM-inclusive rendered-page fingerprint.
+
+    The fingerprint intentionally uses exact serialized DOM content instead of
+    fuzzy visible-text similarity.  This yields fewer skips, but prevents
+    hidden elements, attributes, frames, or embedded payloads from being
+    discarded as if they were the same page.
+    """
+
+    links = set()
+    states = []
+    desktop_name, desktop_viewport = MULTI_SCAN_VIEWPORTS[0]
+    await page.set_viewport_size(desktop_viewport)
+    await page.evaluate("window.scrollTo(0, 0)")
+    states.append(
+        await _capture_dom_state_digest(page, f"{desktop_name}-initial")
+    )
+    links.update(await _collect_links(page))
+
+    await _wait_for_dom_quiet(page)
+    states.append(
+        await _capture_dom_state_digest(page, f"{desktop_name}-settled")
+    )
+    links.update(await _collect_links(page))
+
+    await _auto_scroll(page)
+    await _wait_for_dom_quiet(page)
+    states.append(
+        await _capture_dom_state_digest(page, f"{desktop_name}-scrolled")
+    )
+    links.update(await _collect_links(page))
+
+    mobile_name, mobile_viewport = MULTI_SCAN_VIEWPORTS[1]
+    await page.set_viewport_size(mobile_viewport)
+    await page.evaluate("window.scrollTo(0, 0)")
+    await _wait_for_dom_quiet(page)
+    states.append(
+        await _capture_dom_state_digest(page, f"{mobile_name}-settled")
+    )
+    links.update(await _collect_links(page))
+
+    await _auto_scroll(page)
+    await _wait_for_dom_quiet(page)
+    states.append(
+        await _capture_dom_state_digest(page, f"{mobile_name}-scrolled")
+    )
+    links.update(await _collect_links(page))
+
+    return {
+        "digest": _content_fingerprint_digest(final_url, states),
+        "links": links,
+    }
+
+
+def _content_fingerprint_digest(final_url, states):
+    parsed = urlsplit(final_url)
+    payload = {
+        "path": parsed.path or "/",
+        "query_keys": sorted(
+            key
+            for key, _ in parse_qsl(parsed.query, keep_blank_values=True)
+        ),
+        "states": states,
+    }
+    serialized = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
 async def crawl_site(
     entry_url,
     max_pages=10000,
@@ -195,9 +276,10 @@ async def crawl_site(
 
     정확도 우선 원칙:
     - HTTP discovery는 브라우저 검사를 대체하지 않는다.
-    - 발견한 모든 고유 HTML URL은 시간이 허용되는 한 Playwright 5-pass 검사를 받는다.
+    - 발견 URL은 실제 렌더링 콘텐츠가 같은 패턴의 검사 완료 대표와 정확히
+      일치하는 경우에만 후속 Playwright 5-pass 검사를 생략한다.
     - 실제 DOM/HTML에서 도달한 URL을 sitemap-only URL보다 먼저 검사한다.
-    - URL 패턴은 우선순위에만 사용하고 페이지를 생략하지 않는다.
+    - URL 패턴 자체만으로 페이지를 생략하지 않는다.
     - sitemap-only URL은 브라우저 큐에는 넣되 HTTP 재귀 fetch를 즉시 대량 발생시키지 않는다.
     - max_pages는 '시도 URL 수'가 아니라 실제 완료된 정밀검사 페이지 수 기준이다.
     - max_seconds는 목표 시간이 아니라 30분 상한 전에 결과를 보존하기 위한 watchdog이다.
@@ -230,6 +312,13 @@ async def crawl_site(
     scanned_urls = set()
     scanning_urls = set()
     scheduled_patterns = Counter()
+    pattern_locks = {}
+    pattern_fingerprints = {}
+    pattern_representative_scans = Counter()
+    pattern_sample_claims = Counter()
+    pattern_sample_completions = Counter()
+    pattern_sample_ready = {}
+    fingerprint_inflight = {}
 
     pages = []
     errors = []
@@ -260,12 +349,155 @@ async def crawl_site(
     browser_download_skip_count = 0
     browser_page_recreate_count = 0
     browser_page_recreate_error_count = 0
+    representative_scan_count = 0
+    content_duplicate_skip_count = 0
+    distinct_content_count = 0
+    content_fingerprint_error_count = 0
     forced_cleanup = False
+
+    representative_sample_limit = max(
+        1,
+        int(pattern_priority_samples),
+    )
 
     def time_remaining():
         if max_seconds is None:
             return None
         return max_seconds - (time.perf_counter() - start_timer)
+
+    async def get_pattern_lock(pattern):
+        async with state_lock:
+            lock = pattern_locks.get(pattern)
+            if lock is None:
+                lock = asyncio.Lock()
+                pattern_locks[pattern] = lock
+            return lock
+
+    async def scan_with_content_dedup(page, final_url, *, allow_dedup):
+        """Return (page_result, links, duplicate_of).
+
+        Per-pattern serialization prevents two workers from simultaneously
+        performing the expensive scan for the same not-yet-registered content.
+        Partial/recovered navigations bypass deduplication entirely.
+        """
+
+        nonlocal representative_scan_count
+        nonlocal content_duplicate_skip_count
+        nonlocal distinct_content_count
+        nonlocal content_fingerprint_error_count
+
+        if not allow_dedup:
+            page_result = await _scan_loaded_page_multi(page)
+            return page_result, page_result.get("links", set()), None
+
+        pattern = _url_pattern(final_url)
+        pattern_lock = await get_pattern_lock(pattern)
+
+        async with pattern_lock:
+            representatives = pattern_fingerprints.setdefault(pattern, {})
+            ready_event = pattern_sample_ready.get(pattern)
+            if ready_event is None:
+                ready_event = asyncio.Event()
+                pattern_sample_ready[pattern] = ready_event
+
+            mandatory_sample = (
+                pattern_sample_claims[pattern]
+                < representative_sample_limit
+            )
+            if mandatory_sample:
+                pattern_sample_claims[pattern] += 1
+
+        if mandatory_sample:
+            page_result = None
+            try:
+                page_result = await _scan_loaded_page_multi(page)
+                states = page_result.get("content_states")
+
+                async with pattern_lock:
+                    pattern_representative_scans[pattern] += 1
+                    representative_scan_count += 1
+
+                    if states:
+                        digest = _content_fingerprint_digest(
+                            final_url,
+                            states,
+                        )
+                        if digest not in representatives:
+                            representatives[digest] = final_url
+                            distinct_content_count += 1
+            finally:
+                async with pattern_lock:
+                    pattern_sample_completions[pattern] += 1
+                    if (
+                        pattern_sample_completions[pattern]
+                        >= representative_sample_limit
+                    ):
+                        ready_event.set()
+
+            return page_result, page_result.get("links", set()), None
+
+        # All mandatory representatives finish before later URLs can make a
+        # skip decision.  This wait does not serialize distinct fingerprints.
+        await ready_event.wait()
+
+        try:
+            fingerprint = await _rendered_content_fingerprint(
+                page,
+                final_url,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # Fingerprint uncertainty must never become a skip.
+            content_fingerprint_error_count += 1
+            page_result = await _scan_loaded_page_multi(page)
+            return page_result, page_result.get("links", set()), None
+
+        digest = fingerprint["digest"]
+        links = fingerprint["links"]
+        reservation_key = (pattern, digest)
+
+        while True:
+            async with pattern_lock:
+                duplicate_of = representatives.get(digest)
+                if duplicate_of is not None:
+                    content_duplicate_skip_count += 1
+                    return None, links, duplicate_of
+
+                reservation = fingerprint_inflight.get(reservation_key)
+                if reservation is None:
+                    reservation = asyncio.get_running_loop().create_future()
+                    fingerprint_inflight[reservation_key] = reservation
+                    owns_reservation = True
+                else:
+                    owns_reservation = False
+
+            if owns_reservation:
+                break
+
+            await asyncio.shield(reservation)
+
+        try:
+            page_result = await _scan_loaded_page_multi(page)
+        except BaseException:
+            async with pattern_lock:
+                fingerprint_inflight.pop(reservation_key, None)
+                if not reservation.done():
+                    reservation.set_result(False)
+            raise
+
+        async with pattern_lock:
+            pattern_representative_scans[pattern] += 1
+            representative_scan_count += 1
+            if digest not in representatives:
+                representatives[digest] = final_url
+                distinct_content_count += 1
+
+            fingerprint_inflight.pop(reservation_key, None)
+            if not reservation.done():
+                reservation.set_result(True)
+
+        return page_result, page_result.get("links", links), None
 
     async def add_allowed_host_from_entry(url):
         parsed = urlsplit(url)
@@ -324,6 +556,7 @@ async def crawl_site(
 
         source_rank = SOURCE_PRIORITY.get(source, SOURCE_PRIORITY["http"])
         browser_added = False
+        discovered_count = None
 
         async with state_lock:
             # page cap/time watchdog가 이미 걸린 뒤에는 sitemap/HTTP discovery가
@@ -331,7 +564,9 @@ async def crawl_site(
             if stop_event.is_set():
                 return False
 
-            known_page_urls.add(candidate)
+            if candidate not in known_page_urls:
+                known_page_urls.add(candidate)
+                discovered_count = len(known_page_urls)
 
             if candidate in browser_visited:
                 pass
@@ -342,7 +577,7 @@ async def crawl_site(
                 if existing is None:
                     pattern_rank = (
                         0
-                        if scheduled_patterns[pattern] < pattern_priority_samples
+                        if scheduled_patterns[pattern] < representative_sample_limit
                         else 1
                     )
                     scheduled_patterns[pattern] += 1
@@ -362,6 +597,11 @@ async def crawl_site(
                         )
                     )
                     browser_added = True
+
+        if discovered_count is not None and (
+            discovered_count <= 20 or discovered_count % 25 == 0
+        ):
+            print(f"[ARGUS] 발견 URL {discovered_count}: {candidate}")
 
         # sitemap이 수천 URL을 제공해도 HTTP discovery worker까지 동시에
         # 수천 fetch로 포화시키지 않는다. 브라우저 검사는 그대로 유지한다.
@@ -656,6 +896,7 @@ async def crawl_site(
 
                 claimed = False
                 reserved_final_url = None
+                partial_navigation = False
 
                 try:
                     async with state_lock:
@@ -811,6 +1052,7 @@ async def crawl_site(
                                         ):
                                             recovered_navigation = True
                                             browser_partial_recovery_count += 1
+                                            partial_navigation = True
                                     except Exception:
                                         pass
 
@@ -875,8 +1117,15 @@ async def crawl_site(
                         scanning_urls.add(final_url)
                         reserved_final_url = final_url
 
+                    duplicate_of = None
                     try:
-                        page_result = await _scan_loaded_page_multi(page)
+                        page_result, links, duplicate_of = (
+                            await scan_with_content_dedup(
+                                page,
+                                final_url,
+                                allow_dedup=not partial_navigation,
+                            )
+                        )
                     except asyncio.CancelledError:
                         interrupted_count += 1
                         raise
@@ -937,7 +1186,13 @@ async def crawl_site(
 
                                 final_url = recovered_url
 
-                            page_result = await _scan_loaded_page_multi(page)
+                            page_result, links, duplicate_of = (
+                                await scan_with_content_dedup(
+                                    page,
+                                    final_url,
+                                    allow_dedup=False,
+                                )
+                            )
                         except asyncio.CancelledError:
                             interrupted_count += 1
                             raise
@@ -957,13 +1212,30 @@ async def crawl_site(
                                 return
                             continue
 
+                    if page_result is None:
+                        async with state_lock:
+                            scanning_urls.discard(final_url)
+                            reserved_final_url = None
+                            scanned_urls.add(final_url)
+
+                        print(
+                            f"[ARGUS][W{worker_id}][DEDUP] 콘텐츠 중복 생략: "
+                            f"{final_url} (대표: {duplicate_of})"
+                        )
+
+                        for link in sorted(links):
+                            if stop_event.is_set():
+                                break
+                            await schedule_page(link, source="browser")
+                        continue
+
                     page_result["url"] = final_url
                     page_timings = page_result.setdefault("timings", {})
                     page_timings["navigation"] = navigation_elapsed
                     page_timings["page_total"] = (
                         time.perf_counter() - page_work_started
                     )
-                    links = page_result.pop("links", set())
+                    links = page_result.pop("links", links)
                     reached_cap = False
 
                     async with state_lock:
@@ -1164,6 +1436,15 @@ async def crawl_site(
             elapsed_total - max_seconds,
         )
 
+    print(
+        "[ARGUS][DEDUP] 요약: "
+        f"고유 URL {len(known_page_urls)}, "
+        f"대표 패턴 {len(pattern_fingerprints)}, "
+        f"대표 정밀검사 {representative_scan_count}, "
+        f"콘텐츠 중복 생략 {content_duplicate_skip_count}, "
+        f"서로 다른 콘텐츠 {distinct_content_count}"
+    )
+
     return {
         "entry_url": canonical_entry,
         "pages": pages,
@@ -1193,6 +1474,11 @@ async def crawl_site(
         "worker_count": worker_count,
         "discovery_worker_count": discovery_worker_count,
         "known_page_count": len(known_page_urls),
+        "representative_pattern_count": len(pattern_fingerprints),
+        "representative_scan_count": representative_scan_count,
+        "content_duplicate_skip_count": content_duplicate_skip_count,
+        "distinct_content_count": distinct_content_count,
+        "content_fingerprint_error_count": content_fingerprint_error_count,
         "attempted_count": attempted_count,
         "claimed_count": attempted_count,
         "discovery_fetch_count": discovery_fetch_count,
