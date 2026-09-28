@@ -42,10 +42,11 @@ ARGUS는 공식 네 가지 탐지와 별도로 다음 보조 위험을 진단합
 
 - 자동 다운로드 시도
 - URL 사칭 위험 (`DOMAIN_IMPERSONATION_RISK`)
+- 페이지 단위 피싱 위험 신호 (`PHISHING_RISK`)
 
 URL 사칭 위험은 hostname 문자열에서 알려진 서비스명의 한 글자 오타, IDN/punycode, 유사문자, 비공식 도메인에 사용된 브랜드 별칭을 분석합니다. DNS 조회나 외부 네트워크 평판 API를 사용하지 않으며, 같은 입력에는 같은 결과를 내는 오프라인·결정론적 진단입니다.
 
-보조 진단은 피싱 확정 판정이 아닙니다. 위험 항목은 `SUSPICIOUS`로 표시되고 `result_extra.json`에만 저장되며, 공모전 공식 결과인 `result.json`의 findings와 공식 탐지 건수에는 포함되지 않습니다.
+페이지 단위 피싱 위험 분석은 URL 사칭 여부와 함께 비밀번호/계정 입력 UI, 로그인·인증 문맥, 브랜드-도메인 불일치, cross-origin form action 및 인증 문맥의 외부 iframe 신호를 결합합니다. 폼을 제출하거나 입력값을 읽지 않으며 외부 평판 API도 사용하지 않습니다.\n\n보조 진단은 피싱 확정 판정이 아닙니다. `PHISHING_RISK`와 URL 사칭 위험은 `result_extra.json`에만 저장되며, 공모전 공식 결과인 `result.json`의 findings와 공식 탐지 건수에는 포함되지 않습니다.
 
 공식 결과는 다음 명령으로 스키마와 의미 규칙을 다시 검증할 수 있습니다.
 

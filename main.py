@@ -12,6 +12,7 @@ from detectors.offscreen import detect_offscreen_candidates
 from detectors.transparent import detect_transparent_candidates
 from extra_exporter import export_result_extra_json
 from json_exporter import export_result_json
+from phishing_analyzer import analyze_phishing_pages
 from verifier.contextual import verify_candidates
 
 
@@ -242,9 +243,12 @@ async def main():
         candidate_groups=[verified_candidates],
     )
 
+    phishing_findings = analyze_phishing_pages(crawl_result.get("pages", []))
+
     extra_path, extra_json = export_result_extra_json(
         entry_url=crawl_result["entry_url"],
         download_events=crawl_result.get("download_events", []),
+        phishing_findings=phishing_findings,
     )
 
     raw_candidate_count = sum(len(group) for group in candidate_groups)
@@ -320,7 +324,13 @@ async def main():
         print("       보조 위험 진단")
         print("==============================")
         for index, item in enumerate(suspicious_auxiliary, start=1):
-            if item.get("type") == "DOMAIN_IMPERSONATION_RISK":
+            if item.get("type") == "PHISHING_RISK":
+                print(f"[피싱 위험 신호 {index}]")
+                print("페이지 :", item.get("page_url", ""))
+                print("위험도 :", item.get("risk", ""))
+                print("점수 :", item.get("score", 0))
+                print("판단 근거 :", item.get("reason", ""))
+            elif item.get("type") == "DOMAIN_IMPERSONATION_RISK":
                 print(f"[URL 사칭 위험 {index}]")
                 print("URL :", item.get("page_url", ""))
                 print("표시 도메인 :", item.get("display_hostname", ""))

@@ -267,6 +267,104 @@ DOM_SCAN_SCRIPT = r"""
 """
 
 
+
+SECURITY_META_SCRIPT = r"""
+() => {
+    const clean = value => String(value || "").replace(/\s+/g, " ").trim();
+    const safeUrl = value => {
+        try {
+            return new URL(value || location.href, location.href).href;
+        } catch (_) {
+            return "";
+        }
+    };
+
+    const inputs = Array.from(document.querySelectorAll("input"));
+    const inputTypes = {};
+    for (const input of inputs) {
+        const type = clean(input.getAttribute("type") || "text").toLowerCase();
+        inputTypes[type] = (inputTypes[type] || 0) + 1;
+    }
+
+    const forms = Array.from(document.forms).slice(0, 40).map(form => {
+        const formInputs = Array.from(form.querySelectorAll("input"));
+        const hasPassword = formInputs.some(input =>
+            clean(input.getAttribute("type")).toLowerCase() === "password"
+        );
+        const identifierCount = formInputs.filter(input => {
+            const type = clean(input.getAttribute("type") || "text").toLowerCase();
+            const hint = [
+                input.getAttribute("name"),
+                input.getAttribute("id"),
+                input.getAttribute("autocomplete"),
+                input.getAttribute("placeholder"),
+                input.getAttribute("aria-label")
+            ].map(clean).join(" ").toLowerCase();
+            return type === "email" ||
+                /(user|login|email|account|id|아이디|계정|이메일)/i.test(hint);
+        }).length;
+
+        return {
+            action: safeUrl(form.getAttribute("action") || location.href),
+            method: clean(form.getAttribute("method") || "get").toLowerCase(),
+            hasPassword,
+            identifierCount
+        };
+    });
+
+    const textOf = selector => Array.from(document.querySelectorAll(selector))
+        .map(element => clean(element.innerText || element.textContent))
+        .filter(Boolean)
+        .slice(0, 40);
+
+    const attrs = (selector, attr) => Array.from(document.querySelectorAll(selector))
+        .map(element => clean(element.getAttribute(attr)))
+        .filter(Boolean)
+        .slice(0, 40);
+
+    return {
+        pageUrl: location.href,
+        title: clean(document.title),
+        visibleText: clean(document.body ? document.body.innerText : "").slice(0, 5000),
+        headings: textOf("h1,h2,h3"),
+        labels: textOf("label"),
+        imageAlts: attrs("img[alt]", "alt"),
+        ariaLabels: attrs("[aria-label]", "aria-label"),
+        placeholders: attrs("input[placeholder]", "placeholder"),
+        inputTypes,
+        forms,
+        iframeUrls: Array.from(document.querySelectorAll("iframe[src]"))
+            .map(frame => safeUrl(frame.getAttribute("src")))
+            .filter(Boolean)
+            .slice(0, 40)
+    };
+}
+"""
+
+
+async def _collect_security_metadata(page):
+    """Collect non-sensitive auth/form metadata without reading input values."""
+
+    try:
+        data = await page.evaluate(SECURITY_META_SCRIPT)
+    except Exception:
+        return {
+            "pageUrl": page.url,
+            "title": "",
+            "visibleText": "",
+            "headings": [],
+            "labels": [],
+            "imageAlts": [],
+            "ariaLabels": [],
+            "placeholders": [],
+            "inputTypes": {},
+            "forms": [],
+            "iframeUrls": [],
+        }
+
+    return data if isinstance(data, dict) else {}
+
+
 STATIC_EXTENSIONS = {
     ".7z",
     ".atom",
@@ -701,6 +799,7 @@ async def _capture_pass(page, pass_name):
     links = await _collect_links(page)
     links_elapsed = time.perf_counter() - links_started
     content_state = await _capture_dom_state_digest(page, pass_name)
+    security_metadata = await _collect_security_metadata(page)
 
     return {
         "name": pass_name,
@@ -708,6 +807,7 @@ async def _capture_pass(page, pass_name):
         "frame_count": frame_count,
         "links": links,
         "content_state": content_state,
+        "security_metadata": security_metadata,
         "timing": {
             "total": time.perf_counter() - pass_started,
             "dom_scan": dom_elapsed,
@@ -837,6 +937,10 @@ async def _scan_loaded_page_multi(page):
         "scan_passes": [scan_pass["name"] for scan_pass in passes],
         "content_states": [
             scan_pass["content_state"]
+            for scan_pass in passes
+        ],
+        "security_states": [
+            scan_pass.get("security_metadata", {})
             for scan_pass in passes
         ],
         "timings": timings,

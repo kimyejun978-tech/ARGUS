@@ -58,16 +58,17 @@ function renderRows(state) {
 
   const aux = state.aux_results || [];
   els.auxBody.innerHTML = aux.map((item, idx) => {
+    const isPhishingRisk = item.type === "PHISHING_RISK";
     const isDomainRisk = item.type === "DOMAIN_IMPERSONATION_RISK";
-    const typeLabel = isDomainRisk ? "URL 사칭 위험" : (item.type === "AUTO_DOWNLOAD_ATTEMPT" ? "자동 다운로드" : (item.type || "보조 진단"));
-    const target = isDomainRisk ? (item.display_hostname || item.hostname) : (item.download_url || item.page_url);
-    const detail = isDomainRisk ? item.reason : (item.suggested_filename || item.page_url);
+    const typeLabel = isPhishingRisk ? "피싱 위험" : (isDomainRisk ? "URL 사칭 위험" : (item.type === "AUTO_DOWNLOAD_ATTEMPT" ? "자동 다운로드" : (item.type || "보조 진단")));
+    const target = isPhishingRisk ? (item.hostname || item.page_url) : (isDomainRisk ? (item.display_hostname || item.hostname) : (item.download_url || item.page_url));
+    const detail = (isPhishingRisk || isDomainRisk) ? item.reason : (item.suggested_filename || item.page_url);
     return `
       <tr data-kind="aux" data-index="${idx}" tabindex="0" role="button" aria-label="${escapeHtml(typeLabel)} 상세 보기">
         <td>${escapeHtml(typeLabel)}</td>
         <td title="${escapeHtml(target || "")}">${escapeHtml(target || "-")}</td>
         <td title="${escapeHtml(detail || "")}">${escapeHtml(detail || "-")}</td>
-        <td class="${item.risk === "SUSPICIOUS" ? "risk-suspicious" : "risk-info"}">${escapeHtml(item.risk || "INFO")}</td>
+        <td class="${["SUSPICIOUS","HIGH_RISK"].includes(item.risk) ? "risk-suspicious" : "risk-info"}">${escapeHtml(item.risk || "INFO")}</td>
       </tr>`;
   }).join("");
   els.auxEmpty.classList.toggle("hidden", aux.length > 0);
@@ -193,6 +194,11 @@ function showDetail(kind, index) {
   els.detailTitle.textContent = kind === "official" ? (item.technique || "탐지 결과") : (item.type || "보조 위험 진단");
   const entries = kind === "official" ? [
     ["기법", item.technique], ["탐지 문구", item.evidence_text], ["페이지", item.url], ["위치", item.location]
+  ] : item.type === "PHISHING_RISK" ? [
+    ["판정", item.risk], ["진단 유형", "피싱 위험"], ["대상 페이지", item.page_url],
+    ["호스트", item.hostname], ["점수", item.score], ["브랜드", item.brand],
+    ["판단 근거", item.reason], ["탐지 신호", (item.signals || []).map(x => x.name).join(", ")],
+    ["외부 폼 대상", (item.external_form_actions || []).join(", ")]
   ] : item.type === "DOMAIN_IMPERSONATION_RISK" ? [
     ["판정", item.risk], ["진단 유형", "URL 사칭 위험"], ["입력 주소", item.page_url],
     ["표시 도메인", item.display_hostname || item.hostname], ["유사 브랜드", item.brand],

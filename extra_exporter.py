@@ -4,7 +4,7 @@ from pathlib import Path
 from url_risk import analyze_url_risk
 
 
-def build_auxiliary_findings(download_events, url_findings=None):
+def build_auxiliary_findings(download_events, url_findings=None, phishing_findings=None):
     """Build non-official auxiliary diagnostics.
 
     These records never change the official four-technique result.json findings.
@@ -13,7 +13,11 @@ def build_auxiliary_findings(download_events, url_findings=None):
     findings = []
     seen = set()
 
-    events = list(download_events or []) + list(url_findings or [])
+    events = (
+        list(download_events or [])
+        + list(url_findings or [])
+        + list(phishing_findings or [])
+    )
 
     for event in events:
         key = (
@@ -48,6 +52,10 @@ def build_auxiliary_findings(download_events, url_findings=None):
             "official_domains",
             "confidence",
             "reason",
+            "score",
+            "signals",
+            "external_form_actions",
+            "external_iframes",
         ):
             if field in event:
                 finding[field] = event[field]
@@ -61,6 +69,7 @@ def export_result_extra_json(
     *,
     entry_url,
     download_events,
+    phishing_findings=None,
     output_path="result_extra.json",
 ):
     """Export auxiliary behavior diagnostics separately from result.json."""
@@ -68,6 +77,7 @@ def export_result_extra_json(
     findings = build_auxiliary_findings(
         download_events,
         url_findings=analyze_url_risk(entry_url),
+        phishing_findings=phishing_findings,
     )
     result = {
         "meta": {

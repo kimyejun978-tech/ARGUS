@@ -419,15 +419,28 @@ class ArgusDesktopApi:
                 self._state["aux_downloads"] = sum(
                     1
                     for item in aux
-                    if item.get("risk") == "SUSPICIOUS"
+                    if item.get("risk") in {"SUSPICIOUS", "HIGH_RISK"}
                 )
+                phishing_risks = [
+                    item
+                    for item in aux
+                    if item.get("type") == "PHISHING_RISK"
+                    and item.get("risk") in {"SUSPICIOUS", "HIGH_RISK"}
+                ]
                 domain_risks = [
                     item
                     for item in aux
                     if item.get("type") == "DOMAIN_IMPERSONATION_RISK"
                     and item.get("risk") == "SUSPICIOUS"
                 ]
-                if domain_risks:
+                if phishing_risks:
+                    first = phishing_risks[0]
+                    self._state["warning"] = (
+                        "피싱 위험 신호가 감지되었습니다: "
+                        f"{first.get('hostname', '')} / "
+                        f"점수 {first.get('score', 0)} 확인 필요"
+                    )
+                elif domain_risks:
                     first = domain_risks[0]
                     self._state["warning"] = (
                         "URL 사칭 위험이 감지되었습니다: "
