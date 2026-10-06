@@ -29,14 +29,16 @@
 4. `dino-site-ai/extension` 폴더를 선택합니다.
 5. https://chrome-dino.org/ko/classic/ 를 새로고침합니다.
 
-GitHub에서 새 버전이 올라온 뒤 갱신:
+GitHub에서 새 버전이 올라온 뒤 가장 쉬운 갱신 방법은 `dino-site-ai/update.cmd`를 실행하는 것입니다. 이 파일이 ARGUS 저장소에서 `git pull origin main`을 자동 실행합니다.
+
+직접 명령으로 갱신하려면:
 
 ```powershell
 cd "C:\Users\gimye\Documents\Codex\2026-10-06\ARGUS"
 git pull origin main
 ```
 
-그다음 `chrome://extensions`에서 Dino AI 확장의 **새로고침 버튼**을 누르고 게임 페이지도 새로고침합니다.
+갱신이 끝나면 `chrome://extensions`에서 Dino AI 확장의 **새로고침 버튼**을 누르고 게임 페이지도 새로고침합니다.
 
 > 압축해제된 개발자용 Chrome 확장은 보안상 스스로 파일을 덮어써서 완전 자동 업데이트할 수 없습니다. 현재의 업데이트 버튼은 GitHub의 최신 버전을 확인해 새 버전 존재 여부를 알려주는 방식입니다.
 
