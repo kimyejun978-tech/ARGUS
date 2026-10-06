@@ -649,6 +649,18 @@
     if (!obs) return [0];
     if (obs.distance > 320 || obs.obstacleType === "none") return [0];
     if (!obs.grounded) return [0, 2];
+
+    // Keep Q-learning focused on timing instead of wasting exploration
+    // on obstacle/action combinations that are obviously unhelpful.
+    if (obs.obstacleType === "birdHigh") return [0];
+    if (obs.obstacleType === "birdMid") return [0, 2];
+    if (
+      obs.obstacleType === "birdLow" ||
+      obs.obstacleType === "cactusSmall" ||
+      obs.obstacleType === "cactusLarge"
+    ) {
+      return [0, 1];
+    }
     return [0, 1, 2];
   }
 
