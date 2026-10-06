@@ -14,16 +14,18 @@
       <section class="stats" aria-live="polite">
         <div><span>상태</span><strong id="mode">-</strong></div>
         <div><span>현재 점수</span><strong id="score">-</strong></div>
-        <div><span>사이트 최고점</span><strong id="best">-</strong></div>
+        <div><span>AI 최고점</span><strong id="ai-best">-</strong></div>
+        <div><span>사이트 최고점</span><strong id="site-best">-</strong></div>
         <div><span>실제 학습 횟수</span><strong id="episodes">-</strong></div>
+        <div><span>버전</span><strong id="version">v0.4.0</strong></div>
         <div><span>Q 상태 수</span><strong id="states">-</strong></div>
         <div><span>캔버스</span><strong id="canvas">-</strong></div>
         <div><span>점수 판독</span><strong id="score-readable">-</strong></div>
       </section>
 
       <label class="slider">
-        <span>탐험 비율 <output id="epsilon-value">0.08</output></span>
-        <input id="epsilon" type="range" min="0" max="0.6" step="0.01" value="0.08">
+        <span>탐험 비율 <output id="epsilon-value">0.30</output></span>
+        <input id="epsilon" type="range" min="0.05" max="0.6" step="0.01" value="0.30">
       </label>
 
       <div class="buttons">
@@ -34,6 +36,7 @@
 
       <div class="buttons">
         <button id="export">정책 내보내기</button>
+        <button id="update">업데이트 확인</button>
         <label class="file">
           정책 가져오기
           <input id="import" type="file" accept="application/json,.json">
