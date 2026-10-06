@@ -7,8 +7,8 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
   "use strict";
 
-  var ENCODER_VERSION = "chrome-dino-classic-profile-v2";
-  var STATE_SCHEMA = "kind|profile|timeBucket|distanceBucket|motion|speedBucket";
+  var ENCODER_VERSION = "chrome-dino-classic-profile-v3";
+  var STATE_SCHEMA = "profile|distanceBucket|motion|speedBucket";
 
   function bucket(value, cuts) {
     for (var i = 0; i < cuts.length; i += 1) {
@@ -28,46 +28,22 @@
     var vy = Number(input.vy) || 0;
     var grounded = input.grounded == null ? dinoY >= groundY - dinoHeight - 1 : !!input.grounded;
     var ducking = !!input.ducking;
-    var obstacleTop = input.obstacleTop == null ? groundY : Number(input.obstacleTop) || groundY;
-    var obstacleBottom = input.obstacleBottom == null ? groundY : Number(input.obstacleBottom) || groundY;
-    var obstacleHeight = Math.max(1, obstacleBottom - obstacleTop);
-    var time = distance / Math.max(1, speed);
-    var kind = "none";
-    var profile = "none";
+    var profile = input.obstacleType || "none";
 
-    if (distance < 900) {
-      if (obstacleBottom <= 95) {
-        kind = "none";
-        profile = "birdHigh";
-      } else if (obstacleTop < 90 && obstacleBottom <= 122) {
-        kind = "duck";
-        profile = "birdMid";
-      } else {
-        kind = "jump";
-        if (obstacleTop >= 95 && obstacleBottom >= 135 && obstacleHeight >= 38) {
-          profile = "birdLow";
-        } else if (obstacleTop <= 95 && obstacleHeight >= 45) {
-          profile = "cactusLarge";
-        } else {
-          profile = "cactusSmall";
-        }
-      }
-    }
+    if (distance >= 520) profile = "none";
 
-    var motion = "g";
+    var motion = "ground";
     if (!grounded) {
-      motion = vy < -5 ? "upFast" : vy < 0 ? "up" : vy < 5 ? "fall" : "fallFast";
+      motion = vy < 0 ? "airUp" : "airDown";
     } else if (ducking) {
       motion = "duck";
     }
 
     return [
-      kind,
       profile,
-      bucket(time, [5, 8, 11, 15, 20, 28, 40, 58]),
-      bucket(distance, [22, 45, 70, 105, 145, 200, 280, 390]),
+      bucket(distance, [35, 60, 90, 125, 170, 230, 320, 520]),
       motion,
-      bucket(speed, [7, 8.5, 10, 11.5, 13]),
+      bucket(speed, [7.5, 9.5, 11.5, 13]),
     ].join("|");
   }
 
@@ -90,32 +66,63 @@
 
   QLearner.prototype._row = function (state) {
     if (!this.q[state]) {
-      this.q[state] = [0, 0, 0];
+      this.q[state] = this._bootstrapRow(state);
     }
     return this.q[state];
   };
 
-  QLearner.prototype.act = function (state, epsilon, rng) {
+  QLearner.prototype._bootstrapRow = function (state) {
+    var parts = String(state || "").split("|");
+    var profile = parts[0] || "none";
+    var distanceBucket = Number(parts[1]);
+    var motion = parts[2] || "ground";
+    var row = [0, 0, 0];
+
+    // Small priors prevent a brand-new policy from choosing run forever.
+    // Q-learning can still overwrite these values immediately from experience.
+    if (motion === "ground" || motion === "duck") {
+      if (distanceBucket <= 2) {
+        if (profile === "birdMid") row[2] = 0.75;
+        else if (profile === "birdHigh") row[0] = 0.35;
+        else if (profile !== "none") row[1] = 0.75;
+      } else {
+        row[0] = 0.12;
+      }
+    } else {
+      row[0] = 0.12;
+      row[2] = 0.03;
+    }
+    return row;
+  };
+
+  QLearner.prototype.act = function (state, epsilon, rng, allowedActions) {
     epsilon = epsilon == null ? 0 : epsilon;
     rng = rng || Math;
+    allowedActions = allowedActions && allowedActions.length ? allowedActions.slice() : this.actions.slice();
 
     var random = typeof rng.next === "function" ? rng.next.bind(rng) : rng.random.bind(rng);
     if (random() < epsilon) {
-      return this.actions[Math.floor(random() * this.actions.length)];
+      return allowedActions[Math.floor(random() * allowedActions.length)];
     }
 
     var row = this._row(state);
-    var best = 0;
-    for (var i = 1; i < row.length; i += 1) {
-      if (row[i] > row[best]) {
-        best = i;
+    var bestValue = -Infinity;
+    var ties = [];
+    for (var i = 0; i < allowedActions.length; i += 1) {
+      var action = allowedActions[i];
+      var value = row[action];
+      if (value > bestValue + 1e-9) {
+        bestValue = value;
+        ties = [action];
+      } else if (Math.abs(value - bestValue) <= 1e-9) {
+        ties.push(action);
       }
     }
-    return best;
+    return ties[Math.floor(random() * ties.length)];
   };
 
-  QLearner.prototype.actObservation = function (observation, epsilon, rng) {
-    return this.act(encodeObservation(observation), epsilon, rng);
+  QLearner.prototype.actObservation = function (observation, epsilon, rng, allowedActions) {
+    return this.act(encodeObservation(observation), epsilon, rng, allowedActions);
   };
 
   QLearner.prototype.update = function (state, action, reward, nextState, done) {
