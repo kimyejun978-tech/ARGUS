@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "Chrome Dino Site AI",
+  "version": "0.3.0",
+  "description": "chrome-dino.org classic 실제 사이트 캔버스에서만 학습하고 플레이합니다.",
+  "permissions": ["storage"],
+  "host_permissions": ["https://chrome-dino.org/ko/classic/*"],
+  "action": {
+    "default_title": "Dino AI",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://chrome-dino.org/ko/classic/*"],
+      "js": ["learner.js", "site-agent.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
