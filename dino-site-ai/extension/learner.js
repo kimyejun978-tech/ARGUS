@@ -81,7 +81,7 @@
     // Small priors prevent a brand-new policy from choosing run forever.
     // Q-learning can still overwrite these values immediately from experience.
     if (motion === "ground" || motion === "duck") {
-      if (distanceBucket <= 2) {
+      if (distanceBucket <= 3) {
         if (profile === "birdMid") row[2] = 0.75;
         else if (profile === "birdHigh") row[0] = 0.35;
         else if (profile !== "none") row[1] = 0.75;
