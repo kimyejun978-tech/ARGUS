@@ -96,6 +96,9 @@ assert(adapter.includes('var EPSILON_MIN = 0.05'));
 assert(adapter.includes('var EPSILON_DECAY = 0.992'));
 assert(adapter.includes('var CRASH_TRACE_STEPS = 14'));
 assert(adapter.includes('function allowedActions(obs)'));
+assert(adapter.includes('obs.obstacleType === "birdMid"'));
+assert(adapter.includes('return [0, 2]'));
+assert(fs.existsSync(path.join(__dirname, 'update.cmd')), 'one-click updater must exist');
 assert(adapter.includes('function punishRecentCrash()'));
 assert(adapter.includes('state.aiBestScore'));
 assert(adapter.includes('siteBestScore: pageBestScore()'));
@@ -105,6 +108,7 @@ assert((adapter.match(/if \(!state\.running\)/g) || []).length >= 3, 'restart/lo
 
 assert.equal(learnerApi.stateSchema, 'profile|distanceBucket|motion|speedBucket');
 assert.equal(learnerApi.encoderVersion, 'chrome-dino-classic-profile-v3');
+assert(fs.readFileSync(path.join(folder, 'learner.js'), 'utf8').includes('distanceBucket <= 3'));
 assert(popup.includes('DINO_AI_CHECK_UPDATE'));
 assert(popup.includes('aiBestScore'));
 assert(popup.includes('siteBestScore'));
