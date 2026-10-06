@@ -112,7 +112,7 @@
     setMessage("업데이트를 확인하는 중...");
     send("DINO_AI_CHECK_UPDATE", null, function (info) {
       if (info.updateAvailable) {
-        setMessage("새 버전 v" + info.latestVersion + "이 있습니다. git pull 후 확장 프로그램을 다시 로드하세요.");
+        setMessage("새 버전 v" + info.latestVersion + "이 있습니다. dino-site-ai\\update.cmd 실행 후 chrome://extensions에서 확장을 다시 로드하세요.");
       } else {
         setMessage("현재 최신 버전입니다. v" + info.currentVersion);
       }
