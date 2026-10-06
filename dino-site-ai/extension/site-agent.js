@@ -1,11 +1,17 @@
 (function () {
   "use strict";
 
-  var STORAGE_KEY = "dinoAi.actualSitePolicy.v2";
-  var SETTINGS_KEY = "dinoAi.actualSiteSettings.v1";
-  var TICK_MS = 1000 / 60;
-  var ACTION_HOLD_FRAMES = 4;
+  var VERSION = "0.4.0";
+  var STORAGE_KEY = "dinoAi.actualSitePolicy.v3";
+  var SETTINGS_KEY = "dinoAi.actualSiteSettings.v2";
+  var TICK_MS = 50;
+  var ACTION_HOLD_FRAMES = 2;
   var SAVE_EVERY_MS = 2500;
+  var EPSILON_MIN = 0.05;
+  var EPSILON_DECAY = 0.992;
+  var CRASH_TRACE_STEPS = 14;
+  var UPDATE_MANIFEST_URL = "https://raw.githubusercontent.com/kimyejun978-tech/ARGUS/main/dino-site-ai/extension/manifest.json";
+  var REPO_URL = "https://github.com/kimyejun978-tech/ARGUS/tree/main/dino-site-ai";
   var CANVAS_WIDTH = 600;
   var CANVAS_HEIGHT = 150;
   var DINO_LEFT = 50;
@@ -133,7 +139,7 @@
 
   function readPixelObservation(image, tracker, encoder) {
     tracker = tracker || {};
-    var speed = Math.min(13, 6 + (tracker.frames || 0) * 0.001);
+    var speed = Number(tracker.estimatedSpeed) || 6;
     var dino = image ? findPixelBounds(image, DINO_LEFT, DINO_RIGHT, 45, 145, true) : null;
     var obstacle = image ? findObstacleInImage(image) : null;
     var score = readCanvasScore(image);
@@ -143,6 +149,7 @@
     var ducking = !!(dino && dino.y >= 108 && dino.height <= 34);
     var obs = {
       distance: obstacle ? Math.max(0, obstacle.x - (DINO_X + (ducking ? 59 : 44))) : 999,
+      obstacleX: obstacle ? obstacle.x : null,
       obstacleWidth: obstacle ? obstacle.width : 0,
       obstacleTop: obstacle ? obstacle.y : GROUND_Y,
       obstacleBottom: obstacle ? obstacle.bottom : GROUND_Y,
@@ -250,10 +257,10 @@
     learner: new api.QLearner(),
     running: false,
     learning: false,
-    epsilon: 0.08,
+    epsilon: 0.30,
     episodes: 0,
     score: 0,
-    bestScore: 0,
+    aiBestScore: 0,
     frames: 0,
     mode: "idle",
     lastSave: 0,
@@ -272,6 +279,10 @@
     scoreBaselineSet: false,
     lastScoreAcceptedAt: 0,
     needsGameStart: false,
+    estimatedSpeed: 6,
+    lastObstacleX: null,
+    lastObstacleAt: 0,
+    recentTransitions: [],
   };
   var scoreTemplates = null;
   var scoreTemplatePromise = null;
@@ -423,12 +434,12 @@
 
   function validatePolicy(policy) {
     var q = policy && policy.q;
-    if (policy.version !== 3 || policy.source !== "chrome-dino.org/ko/classic") return null;
+    if (policy.version !== 4 || policy.source !== "chrome-dino.org/ko/classic") return null;
     if (policy.encoderVersion !== api.encoderVersion || policy.stateSchema !== api.stateSchema) return null;
     if (!q || typeof q !== "object") return null;
     var keys = Object.keys(q);
     for (var i = 0; i < keys.length; i += 1) {
-      if (keys[i].split("|").length !== 6) return null;
+      if (keys[i].split("|").length !== 4) return null;
       var row = q[keys[i]];
       if (!Array.isArray(row) || row.length < 3) return null;
       for (var j = 0; j < 3; j += 1) {
@@ -442,19 +453,19 @@
     if (!policy) return;
     var model = policy.model && policy.model.q ? policy.model : policy;
     var episodes = policy.episodes != null ? policy.episodes : model.episodes;
-    var best = policy.actualSiteBest != null ? policy.actualSiteBest : model.actualSiteBest;
+    var best = policy.aiBestScore != null ? policy.aiBestScore : model.aiBestScore;
     if (Number.isFinite(Number(episodes))) state.episodes = Math.max(0, Math.floor(Number(episodes)));
-    if (Number.isFinite(Number(best))) state.bestScore = Math.max(0, Number(best));
+    if (Number.isFinite(Number(best))) state.aiBestScore = Math.max(0, Number(best));
   }
 
   function exportPolicy() {
     var policy = state.learner.export();
-    policy.version = 3;
+    policy.version = 4;
     policy.source = "chrome-dino.org/ko/classic";
     policy.encoderVersion = api.encoderVersion;
     policy.stateSchema = api.stateSchema;
     policy.episodes = state.episodes;
-    policy.actualSiteBest = state.bestScore;
+    policy.aiBestScore = state.aiBestScore;
     policy.history = policy.history || [];
     return policy;
   }
@@ -524,10 +535,37 @@
 
   function observe(image) {
     if (!image) image = drawNormalizedCanvas(getCanvas());
-    var obs = readPixelObservation(image, { frames: state.frames, lastDinoY: state.lastDinoY }, api.encodeObservation);
+    var now = performance.now();
+    var obs = readPixelObservation(
+      image,
+      { frames: state.frames, lastDinoY: state.lastDinoY, estimatedSpeed: state.estimatedSpeed },
+      null
+    );
 
+    if (obs.obstacleX != null) {
+      if (
+        state.lastObstacleX != null &&
+        obs.obstacleX <= state.lastObstacleX + 4 &&
+        state.lastObstacleAt > 0
+      ) {
+        var elapsed = now - state.lastObstacleAt;
+        if (elapsed >= 20 && elapsed <= 180) {
+          var measured = (state.lastObstacleX - obs.obstacleX) / (elapsed / (1000 / 60));
+          if (measured >= 2.5 && measured <= 18) {
+            state.estimatedSpeed = state.estimatedSpeed * 0.75 + measured * 0.25;
+          }
+        }
+      }
+      state.lastObstacleX = obs.obstacleX;
+      state.lastObstacleAt = now;
+    } else {
+      state.lastObstacleX = null;
+      state.lastObstacleAt = 0;
+    }
+
+    obs.speed = state.estimatedSpeed;
+    obs.state = api.encodeObservation(obs);
     state.lastDinoY = obs.dinoY;
-
     return obs;
   }
 
@@ -607,14 +645,59 @@
     releaseKeys();
   }
 
+  function allowedActions(obs) {
+    if (!obs) return [0];
+    if (obs.distance > 320 || obs.obstacleType === "none") return [0];
+    if (!obs.grounded) return [0, 2];
+    return [0, 1, 2];
+  }
+
+  function decayEpsilon() {
+    state.epsilon = Math.max(EPSILON_MIN, state.epsilon * EPSILON_DECAY);
+  }
+
+  function rememberTransition(prevObs, action, nextObs) {
+    state.recentTransitions.push({
+      state: prevObs.state,
+      action: action,
+      nextState: nextObs.state,
+    });
+    if (state.recentTransitions.length > CRASH_TRACE_STEPS) {
+      state.recentTransitions.shift();
+    }
+  }
+
+  function punishRecentCrash() {
+    for (var i = state.recentTransitions.length - 1, depth = 0; i >= 0; i -= 1, depth += 1) {
+      var transition = state.recentTransitions[i];
+      var penalty = -18 * Math.pow(0.82, depth);
+      state.learner.update(transition.state, transition.action, penalty, transition.nextState, true);
+    }
+    state.recentTransitions = [];
+  }
+
   function updateLearner(obs, crashed) {
     if (!state.prevObs || !state.learning) return;
     var score = obs.score != null && Number.isFinite(Number(obs.score)) ? Number(obs.score) : state.prevScore;
-    var reward = 0.04 + Math.max(0, score - state.prevScore) * 0.1;
-    if (state.prevObs.distance < 25 && obs.distance > 120) reward += 3;
-    if (String(state.prevObs.obstacleType).indexOf("bird") === 0 && state.prevAction === 2 && state.prevObs.distance < 120) reward += 0.4;
-    if (crashed) reward -= 35;
+    var reward = 0.002 + Math.max(0, score - state.prevScore) * 0.15;
+
+    var passedObstacle = state.prevObs.distance < 38 && obs.distance > 150;
+    if (passedObstacle) reward += 8;
+
+    if (state.prevAction === 1 && state.prevObs.distance > 230) reward -= 0.18;
+    if (state.prevAction === 2 && state.prevObs.distance > 230) reward -= 0.12;
+
+    if (
+      state.prevObs.obstacleType === "birdMid" &&
+      state.prevAction === 2 &&
+      state.prevObs.distance < 130
+    ) {
+      reward += 0.6;
+    }
+
+    if (crashed) reward -= 60;
     state.learner.update(state.prevObs.state, state.prevAction, reward, obs.state, crashed);
+    if (!crashed) rememberTransition(state.prevObs, state.prevAction, obs);
     state.prevScore = score;
   }
 
@@ -646,6 +729,10 @@
         state.scoreBaselineSet = false;
         state.lastScoreAcceptedAt = 0;
         state.crashedLastTick = false;
+        state.estimatedSpeed = 6;
+        state.lastObstacleX = null;
+        state.lastObstacleAt = 0;
+        state.recentTransitions = [];
       }, 150);
     }, 1000);
   }
@@ -677,15 +764,17 @@
     state.lastObs = obs;
     if (acceptedScore != null) {
       state.score = acceptedScore;
-      state.bestScore = Math.max(state.bestScore, state.score, pageBestScore());
-    } else {
-      state.bestScore = Math.max(state.bestScore, pageBestScore());
+      state.aiBestScore = Math.max(state.aiBestScore, state.score);
     }
 
     if (crashed) {
       if (!state.crashedLastTick) {
         updateLearner(obs, true);
-        if (state.learning) state.episodes += 1;
+        if (state.learning) {
+          punishRecentCrash();
+          state.episodes += 1;
+          decayEpsilon();
+        }
         savePolicy(true);
         restartSoon();
       }
@@ -698,7 +787,12 @@
     state.frames += 1;
     updateLearner(obs, false);
 
-    var action = state.learner.act(obs.state, state.learning ? state.epsilon : 0);
+    var action = state.learner.act(
+      obs.state,
+      state.learning ? state.epsilon : 0,
+      null,
+      allowedActions(obs)
+    );
     applyAction(action, obs);
     state.prevObs = obs;
     state.prevAction = action;
@@ -727,6 +821,10 @@
     state.lastScoreAcceptedAt = 0;
     state.scoreReadable = false;
     state.needsGameStart = true;
+    state.estimatedSpeed = 6;
+    state.lastObstacleX = null;
+    state.lastObstacleAt = 0;
+    state.recentTransitions = [];
     releaseKeys();
     if (!state.timer) loop();
     updateWidget();
@@ -757,7 +855,9 @@
       epsilon: state.epsilon,
       score: state.score,
       scoreLabel: String(state.score),
-      bestScore: Math.max(state.bestScore, pageBestScore()),
+      aiBestScore: state.aiBestScore,
+      siteBestScore: pageBestScore(),
+      version: VERSION,
       episodes: state.episodes,
       states: Object.keys(state.learner.q || {}).length,
       lastAction: ACTIONS[state.prevAction] || "run",
@@ -791,6 +891,36 @@
     return status();
   }
 
+  function compareVersions(a, b) {
+    var aa = String(a || "0").split(".").map(Number);
+    var bb = String(b || "0").split(".").map(Number);
+    var length = Math.max(aa.length, bb.length);
+    for (var i = 0; i < length; i += 1) {
+      var av = aa[i] || 0;
+      var bv = bb[i] || 0;
+      if (av > bv) return 1;
+      if (av < bv) return -1;
+    }
+    return 0;
+  }
+
+  function checkForUpdate() {
+    return fetch(UPDATE_MANIFEST_URL, { cache: "no-store" })
+      .then(function (response) {
+        if (!response.ok) throw new Error("update check failed");
+        return response.json();
+      })
+      .then(function (manifest) {
+        var latest = manifest && manifest.version ? manifest.version : VERSION;
+        return {
+          currentVersion: VERSION,
+          latestVersion: latest,
+          updateAvailable: compareVersions(latest, VERSION) > 0,
+          repoUrl: REPO_URL,
+        };
+      });
+  }
+
   function createWidget() {
     var style = document.createElement("style");
     style.textContent = [
@@ -809,14 +939,16 @@
       "<strong>Dino AI</strong>",
       "<div class='row'><span>상태</span><b data-field='mode'>대기</b></div>",
       "<div class='row'><span>현재 점수</span><b data-field='score'>0</b></div>",
-      "<div class='row'><span>사이트 최고점</span><b data-field='best'>0</b></div>",
+      "<div class='row'><span>AI 최고점</span><b data-field='ai-best'>0</b></div>",
+      "<div class='row'><span>사이트 최고점</span><b data-field='site-best'>0</b></div>",
       "<div class='row'><span>실제 학습 횟수</span><b data-field='episodes'>0</b></div>",
+      "<div class='row'><span>버전</span><b data-field='version'>v0.4.0</b></div>",
       "<div class='row'><span>Q 상태 수</span><b data-field='states'>0</b></div>",
       "<div class='row'><span>캔버스</span><b data-field='canvas'>대기</b></div>",
       "<div class='row'><span>점수 판독</span><b data-field='score-read'>대기</b></div>",
-      "<label>탐험 비율 <output data-field='epsilon'>0.08</output><input data-action='epsilon' type='range' min='0' max='0.6' step='0.01' value='0.08'></label>",
+      "<label>탐험 비율 <output data-field='epsilon'>0.30</output><input data-action='epsilon' type='range' min='0.05' max='0.6' step='0.01' value='0.30'></label>",
       "<div class='actions'><button data-action='learn'>학습</button><button data-action='play'>실행</button><button data-action='stop'>중지</button></div>",
-      "<div><button data-action='export'>정책 내보내기</button></div>",
+      "<div><button data-action='export'>정책 내보내기</button> <button data-action='update'>업데이트 확인</button></div>",
     ].join("");
     document.head.appendChild(style);
     root.addEventListener("click", function (event) {
@@ -825,6 +957,17 @@
       if (action === "play") start(false, 0);
       if (action === "stop") stop();
       if (action === "export") downloadPolicy();
+      if (action === "update") {
+        checkForUpdate().then(function (info) {
+          if (info.updateAvailable) {
+            window.open(info.repoUrl, "_blank");
+          } else {
+            window.alert("현재 최신 버전입니다. v" + info.currentVersion);
+          }
+        }).catch(function () {
+          window.alert("업데이트 확인에 실패했습니다.");
+        });
+      }
     });
     root.addEventListener("input", function (event) {
       if (event.target && event.target.getAttribute("data-action") === "epsilon") {
@@ -840,7 +983,9 @@
     var fields = {
       mode: modeLabel(s.mode),
       score: s.scoreLabel,
-      best: s.bestScore,
+      "ai-best": s.aiBestScore,
+      "site-best": s.siteBestScore,
+      version: "v" + s.version,
       episodes: s.episodes,
       states: s.states,
       canvas: s.canvasReady ? "감지" : "미감지",
@@ -874,6 +1019,12 @@
       if (message.type === "DINO_AI_SET_EPSILON") sendResponse(setEpsilon(Number(message.epsilon)));
       if (message.type === "DINO_AI_EXPORT") sendResponse({ policy: exportPolicy(), status: status() });
       if (message.type === "DINO_AI_IMPORT") sendResponse(importPolicy(message.policy));
+      if (message.type === "DINO_AI_CHECK_UPDATE") {
+        checkForUpdate().then(sendResponse).catch(function (error) {
+          sendResponse({ error: String(error && error.message ? error.message : error) });
+        });
+        return true;
+      }
     } catch (error) {
       sendResponse({ error: String(error && error.message ? error.message : error) });
     }
@@ -897,6 +1048,7 @@
     exportPolicy: function () {
       return exportPolicy();
     },
+    checkForUpdate: checkForUpdate,
   };
 
   load();
