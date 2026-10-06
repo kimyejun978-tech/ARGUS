@@ -4,7 +4,9 @@
   var els = {
     mode: document.getElementById("mode"),
     score: document.getElementById("score"),
-    best: document.getElementById("best"),
+    aiBest: document.getElementById("ai-best"),
+    siteBest: document.getElementById("site-best"),
+    version: document.getElementById("version"),
     episodes: document.getElementById("episodes"),
     states: document.getElementById("states"),
     canvas: document.getElementById("canvas"),
@@ -16,6 +18,7 @@
     play: document.getElementById("play"),
     stop: document.getElementById("stop"),
     exportBtn: document.getElementById("export"),
+    updateBtn: document.getElementById("update"),
     importInput: document.getElementById("import"),
   };
 
@@ -55,7 +58,9 @@
     status = status || {};
     els.mode.textContent = modeLabel(status.mode);
     els.score.textContent = status.scoreLabel || String(status.score || 0);
-    els.best.textContent = String(status.bestScore || 0);
+    els.aiBest.textContent = String(status.aiBestScore || 0);
+    els.siteBest.textContent = String(status.siteBestScore || 0);
+    els.version.textContent = "v" + String(status.version || chrome.runtime.getManifest().version);
     els.episodes.textContent = String(status.episodes || 0);
     els.states.textContent = String(status.states || 0);
     els.canvas.textContent = status.canvasReady ? "감지" : "미감지";
@@ -100,6 +105,17 @@
     send("DINO_AI_STOP", null, function (status) {
       setMessage("중지했습니다.");
       render(status);
+    });
+  });
+
+  els.updateBtn.addEventListener("click", function () {
+    setMessage("업데이트를 확인하는 중...");
+    send("DINO_AI_CHECK_UPDATE", null, function (info) {
+      if (info.updateAvailable) {
+        setMessage("새 버전 v" + info.latestVersion + "이 있습니다. git pull 후 확장 프로그램을 다시 로드하세요.");
+      } else {
+        setMessage("현재 최신 버전입니다. v" + info.currentVersion);
+      }
     });
   });
 
